@@ -26,6 +26,8 @@ export function createCodexService(options = {}) {
 
     async function listThreads(parameters = {}, {signal} = {}) {
         if (codex.state !== 'connected') return unavailable();
+        const connectionId = codex.connection;
+        const originIdentity = codex.identity();
         const {cursor: requestedCursor, ...filters} = parameters;
         const threads = [];
         const pages = [];
@@ -59,6 +61,7 @@ export function createCodexService(options = {}) {
         }
         return {
             status: complete ? 'available' : 'partial', threads, pages,
+            identity: readIdentity(connectionId, originIdentity),
             coverage: {complete, scope: 'accessible-threads', archived: parameters.archived === true, nextCursor: cursor ?? null},
             ...(failure ? {diagnostic: failure} : {}),
             observedAt: new Date().toISOString()
@@ -83,6 +86,7 @@ export function createCodexService(options = {}) {
             status: listing.status,
             projects: [...associations.values()],
             nativeRegistryAvailable: false,
+            identity: listing.identity,
             coverage: {...listing.coverage, scope: 'observed-thread-working-directories'},
             original: listing,
             observedAt: listing.observedAt
@@ -91,8 +95,22 @@ export function createCodexService(options = {}) {
 
     async function readThread({threadId}, {signal} = {}) {
         if (codex.state !== 'connected') return unavailable();
+        const connectionId = codex.connection;
+        const originIdentity = codex.identity();
         const original = await codex.request('thread/read', {threadId, includeTurns: false}, {signal});
-        return {status: 'available', threadId, thread: original.thread, original, observedAt: new Date().toISOString()};
+        return {
+            status: 'available', threadId, thread: original.thread, original,
+            identity: readIdentity(connectionId, originIdentity),
+            observedAt: new Date().toISOString()
+        };
+    }
+
+    function readIdentity(connectionId, originIdentity) {
+        const current = codex.identity();
+        if (!originIdentity || !current || connectionId !== codex.connection
+            || originIdentity.accountId !== current.accountId
+            || originIdentity.hostId !== current.hostId) return null;
+        return {connectionId, originIdentity};
     }
 
     async function readDirectory(parameters, {signal} = {}) {

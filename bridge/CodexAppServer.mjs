@@ -1,5 +1,6 @@
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
+import {hostname} from 'node:os';
 import {CoreError, serializeCoreError} from 'arcane-os/core/contracts';
 
 /** One PM-owned Codex stdio connection. Core owns the application's transport. */
@@ -8,6 +9,7 @@ export class CodexAppServer {
         this.command = command;
         this.args = args;
         this.cwd = cwd;
+        this.hostName = hostname();
         this.child = null;
         this.connection = 0;
         this.requestSequence = 0;
@@ -54,6 +56,8 @@ export class CodexAppServer {
             available: true,
             message: this.message,
             connectionId: this.connection,
+            originIdentity: this.identity(),
+            host: {name: this.hostName, processId: this.child?.pid ?? null},
             closing: Boolean(this.closing),
             capabilities: {
                 listProjects: connected,
@@ -87,6 +91,12 @@ export class CodexAppServer {
             }),
             observedAt: new Date().toISOString()
         };
+    }
+
+    identity() {
+        const accountId = this.account?.workspaceRouting?.chatgptAccountId;
+        if (!this.accountKnown || !accountId) return null;
+        return {provider: 'codex', accountId, hostId: this.hostName};
     }
 
     publishState(state, message) {

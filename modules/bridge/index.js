@@ -1,6 +1,7 @@
 import {subscribeCoreClient} from 'arcane-os/core/client';
 import {CoreError} from 'arcane-os/core/contracts';
 import {createArcaneEventSource} from 'arcane-os/event-manager';
+import {observeCodexTaskActivity} from './activity.js';
 
 export {mountConnectionsView} from './view.js';
 
@@ -17,6 +18,7 @@ export function createCodexBridge({coreClient, openURL} = {}) {
     let clientLifetime = null;
     let stopInstallation = null;
     let disposed = false;
+    const bridgeLifetime = new AbortController();
 
     function unavailableState(message = 'Codex connection needs the Arcane PM host. Local work remains available.') {
         return {
@@ -234,6 +236,7 @@ export function createCodexBridge({coreClient, openURL} = {}) {
     function dispose() {
         if (disposed) return;
         disposed = true;
+        bridgeLifetime.abort();
         stopInstallation?.();
         releaseSubscriptions();
         events.dispose();
@@ -242,9 +245,15 @@ export function createCodexBridge({coreClient, openURL} = {}) {
 
     if (coreClient) attachClient(coreClient);
     else stopInstallation = subscribeCoreClient(observeInstallation);
-    return {
+    const bridge = {
         status, refreshStatus, connect, disconnect, subscribe, observeNotifications, observeRequests,
         getThreadUrl, openThread, dispose,
+        observeTaskActivity: function observeTaskActivity(listener, options = {}) {
+            const signal = options.signal
+                ? AbortSignal.any([bridgeLifetime.signal, options.signal])
+                : bridgeLifetime.signal;
+            return observeCodexTaskActivity(bridge, listener, {...options, signal});
+        },
         listProjects: function listProjects(parameters) { return invoke('listProjects', parameters); },
         listThreads: function listThreads(parameters) { return invoke('listThreads', parameters); },
         readThread: function readThread(parameters) { return invoke('readThread', parameters); },
@@ -261,4 +270,5 @@ export function createCodexBridge({coreClient, openURL} = {}) {
         cancelTurn: function cancelTurn(parameters) { return invoke('cancelTurn', parameters); },
         respondToRequest: function respondToRequest(parameters) { return invoke('respondToRequest', parameters); }
     };
+    return bridge;
 }

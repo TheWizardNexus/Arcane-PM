@@ -138,7 +138,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
                 return;
             }
             results.replaceChildren();
-            for (const thread of result.threads) renderThread(thread, result.observedAt);
+            for (const thread of result.threads) renderThread(thread, result.observedAt, result.identity);
             showOperation(result.coverage.complete
                 ? `${result.threads.length} accessible Codex tasks found.`
                 : `${result.threads.length} Codex tasks retrieved. Some tasks remain unavailable.`);
@@ -167,7 +167,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
                 return;
             }
             results.replaceChildren();
-            renderThread(result.thread, result.observedAt);
+            renderThread(result.thread, result.observedAt, result.identity);
             showOperation('Codex task found.');
         } finally {
             finding = false;
@@ -175,7 +175,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
         }
     }
 
-    function renderThread(thread, observedAt) {
+    function renderThread(thread, observedAt, identity) {
         const article = document.createElement('article');
         article.className = 'pm-panel';
         const title = document.createElement('h2');
@@ -183,48 +183,104 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
         const folder = document.createElement('p');
         folder.textContent = thread.cwd || 'Working folder not supplied by Codex';
         const nativeState = document.createElement('p');
-        nativeState.textContent = `Codex state: ${thread.status?.type ?? 'unknown'}`;
+        const statusMessage = thread.status?.type === 'notLoaded'
+            ? 'Live activity is not observed by this Codex connection.'
+            : `This Codex connection reported task state ${thread.status?.type ?? 'unknown'}.`;
+        nativeState.textContent = statusMessage;
         const open = document.createElement('a');
         open.href = bridge.getThreadUrl(thread.id);
         open.textContent = 'Open in Codex';
         article.append(title, folder, nativeState, open);
-        if (pmData) article.append(button('Add to this PM workspace', async function importTask() {
-            showOperation('Saving the task association…');
-            const existing = await pmData.listTasks({signal: pageSignal});
-            pageSignal.throwIfAborted();
-            const match = existing.find(function sameNativeThread(task) {
-                return task.origin?.provider === 'codex' && task.origin.threadId === thread.id;
-            });
-            if (match) {
-                showOperation('This Codex task is already in PM.');
-                onNavigate?.('task', {projectId: match.projectId, taskId: match.id});
-                return;
-            }
-            let selectedProjectId = projectId ?? null;
-            if (!selectedProjectId && thread.cwd) {
-                const projects = await pmData.listProjects({signal: pageSignal});
+        if (pmData) {
+            const associationAction = button('Add to this PM workspace', async function importTask() {
+                showOperation('Saving the task association…');
+                const existing = await pmData.listTasks({signal: pageSignal});
                 pageSignal.throwIfAborted();
-                const associated = projects.find(function sameWorkingFolder(project) { return project.workFolder === thread.cwd; });
-                if (associated) selectedProjectId = associated.id;
-                else {
-                    const project = await pmData.createProject({
-                        name: thread.cwd, workFolder: thread.cwd,
-                        origin: {provider: 'codex', projectId: thread.projectId ?? null}
-                    });
-                    selectedProjectId = project.id;
+                const originIdentity = currentIdentity();
+                if (identity?.originIdentity && !originIdentity) {
+                    showOperation('The connection changed. Find this task again before associating it.');
+                    return;
                 }
-            }
-            pageSignal.throwIfAborted();
-            const task = await pmData.createTask({
-                title: thread.name || thread.id, projectId: selectedProjectId,
-                workFolder: thread.cwd || null, status: thread.status?.type ?? 'unknown',
-                origin: {provider: 'codex', projectId: thread.projectId ?? null, threadId: thread.id, url: bridge.getThreadUrl(thread.id)},
-                observedEvidence: [{message: `Codex reported task state ${thread.status?.type ?? 'unknown'}.`, observedAt}]
+                const match = existing.find(function sameNativeThread(task) {
+                    return task.origin?.provider === 'codex' && task.origin.threadId === thread.id
+                        && (task.origin.accountId ?? null) === (originIdentity?.accountId ?? null)
+                        && (task.origin.hostId ?? null) === (originIdentity?.hostId ?? null);
+                });
+                if (match) {
+                    showOperation('This Codex task is already in PM.');
+                    onNavigate?.('task', {projectId: match.projectId, taskId: match.id});
+                    return;
+                }
+                const unassociated = existing.find(function missingNativeIdentity(task) {
+                    return task.origin?.provider === 'codex' && task.origin.threadId === thread.id
+                        && (!task.origin.accountId || !task.origin.hostId);
+                });
+                if (unassociated && originIdentity) {
+                    showOperation('This task has a saved association without its account and host. Associate it with this connection to observe available activity.');
+                    const associate = button('Associate saved task with this connection', async function associateSavedTask() {
+                        const selectedIdentity = currentIdentity();
+                        if (!selectedIdentity) {
+                            showOperation('Find this task again to capture the current connection identity.');
+                            return;
+                        }
+                        const current = await pmData.getTask(unassociated.id, {signal: pageSignal});
+                        pageSignal.throwIfAborted();
+                        if (!current || current.origin?.provider !== 'codex'
+                            || current.origin.threadId !== thread.id
+                            || (current.origin.accountId && current.origin.hostId)) {
+                            showOperation('The saved association changed. Find this task again.');
+                            return;
+                        }
+                        if (!currentIdentity()) {
+                            showOperation('Find this task again to capture the current connection identity.');
+                            return;
+                        }
+                        const task = await pmData.updateTask(current.id, {
+                            origin: {...current.origin, ...selectedIdentity}
+                        });
+                        showOperation('Task connection associated locally.');
+                        if (!pageSignal.aborted) onNavigate?.('task', {projectId: task.projectId, taskId: task.id});
+                    });
+                    associationAction.replaceWith(associate);
+                    return;
+                }
+                let selectedProjectId = projectId ?? null;
+                if (!selectedProjectId && thread.cwd) {
+                    const projects = await pmData.listProjects({signal: pageSignal});
+                    pageSignal.throwIfAborted();
+                    const associated = projects.find(function sameWorkingFolder(project) { return project.workFolder === thread.cwd; });
+                    if (associated) selectedProjectId = associated.id;
+                    else {
+                        const project = await pmData.createProject({
+                            name: thread.cwd, workFolder: thread.cwd,
+                            origin: {provider: 'codex', ...originIdentity, projectId: thread.projectId ?? null}
+                        });
+                        selectedProjectId = project.id;
+                    }
+                }
+                pageSignal.throwIfAborted();
+                const task = await pmData.createTask({
+                    title: thread.name || thread.id, projectId: selectedProjectId,
+                    workFolder: thread.cwd || null,
+                    status: thread.status?.type === 'notLoaded' ? 'unknown' : thread.status?.type ?? 'unknown',
+                    origin: {provider: 'codex', ...originIdentity, projectId: thread.projectId ?? null, threadId: thread.id, url: bridge.getThreadUrl(thread.id)},
+                    observedEvidence: [{message: statusMessage, observedAt}]
+                });
+                showOperation('Task association saved locally.');
+                if (!pageSignal.aborted) onNavigate?.('task', {projectId: task.projectId, taskId: task.id});
             });
-            showOperation('Task association saved locally.');
-            if (!pageSignal.aborted) onNavigate?.('task', {projectId: task.projectId, taskId: task.id});
-        }));
+            article.append(associationAction);
+        }
         results.append(article);
+
+        function currentIdentity() {
+            const current = bridge.status();
+            if (!identity?.originIdentity || !current.connected
+                || current.connectionId !== identity.connectionId
+                || current.originIdentity?.accountId !== identity.originIdentity.accountId
+                || current.originIdentity?.hostId !== identity.originIdentity.hostId) return null;
+            return identity.originIdentity;
+        }
     }
 
     const stop = bridge.subscribe(renderState, {signal: pageSignal});

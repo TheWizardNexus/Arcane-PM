@@ -47,6 +47,7 @@ initial status read and subscriptions; disposal does not close the shared client
 | `subscribe(listener, {signal, emitCurrent:true})` | Observes connection state through the shared SDK event owner, with current state replay. Returns unsubscribe. |
 | `observeNotifications(listener, {signal})` | Complete native notifications, transient and outside durable chat history. |
 | `observeRequests(listener, {signal})` | Actual pending native approval/input requests; never automatically approved. |
+| `observeTaskActivity(listener, {threadIds:[], signal, emitCurrent:true})` | Connection-scoped activity snapshots for selected thread IDs. Returns `{setThreadIds,dispose}`; unchanged selections do not repeat reads. |
 | `listThreads({cwd, archived, signal})` | All pages for the selected archive state and directory filter. Original thread records remain unchanged. |
 | `listProjects({archived, signal})` | Observed working-folder associations from threads, with native project IDs when present. This is not a saved-project registry. |
 | `readThread({threadId, signal})` | Current native thread metadata, including actual observed state. Does not resume a thread. |
@@ -70,6 +71,68 @@ All asynchronous methods preserve supplied payload content. `signal` is
 operation control, separate from the destination parameters. Disconnection,
 missing native service and missing full history return an honest unavailable
 state or an actual error, never an empty successful replacement.
+
+## Selected task activity
+
+`observeTaskActivity` attaches listeners before independently seeding each
+selected thread through `readThread`. It never resumes a thread, starts an
+inference, polls or waits for all tasks before delivering an observation.
+Callbacks receive `{observerId,revision,observedAt,connection,threads}`. The
+observer ID and revision order this subscription's callbacks; they belong to
+transient coordination, not durable PM history.
+Each row also carries transient `observationId` and `observationRevision`.
+Unchanged replay keeps these values; removing and selecting a thread again
+starts a new row lifetime. Consumers use them per exact origin/task to avoid
+repeating unchanged projections, without comparing raw native status data.
+
+`connection.originIdentity` is `{provider:'codex',accountId,hostId}` when native
+`account/read` supplies its experimental `workspaceRouting.chatgptAccountId`.
+Otherwise it is null. `hostId` is the native host's reported operating-system
+hostname, with no global uniqueness claim. The accompanying `host` provides
+`name` and the owned connection process ID. This identity describes the account
+used for the observation; it does not establish historical account ownership
+of every thread retained in the same Codex home.
+
+Each thread observation includes its exact `origin`, `threadId`, `availability`,
+native `status` or null, an optional narrow `turn`, actual pending-request
+summaries, a complete app-authored `message`, its real `observedAt`, and
+`coverage:{scope:'connected-server',live,reason}`. Native status values are
+`active`, `idle`, `systemError` and `notLoaded`; active flags may identify
+`waitingOnApproval` or `waitingOnUserInput`. An actual pending request or turn
+event is evidence of observed activity even while status is unavailable. A
+completed turn does not establish that its task is idle or complete.
+
+The native server's `notLoaded` result means this connection cannot observe
+that task's runtime. It must not become a claim that a task running in another
+desktop/server process is idle, interrupted or finished. The spawned stdio
+server has its own task runtime. Its status notifications cover that server;
+read-only history access does not subscribe to another server's activity.
+Existing pending requests in another connection are not fabricated from status
+flags or history. Raw native frames remain transient in the bridge.
+
+Account change, disconnect and retirement cancel outstanding seed reads and
+publish coverage loss using each thread's prior exact origin. New account
+observations receive the new identity. Late reads cannot replace newer events.
+Current replay preserves thread observation times; only new native observations
+advance them. Consumers apply loss records against each record's own origin,
+even when the snapshot's current connection changed. A later account's snapshot
+must not suppress an old account's queued loss record: compare revisions per
+origin/task within the current observer lifetime.
+
+`readThread` and `listThreads` return separate `identity:{connectionId,
+originIdentity}` only when that identity remained the same across the read.
+The complete native payload remains unchanged when identity is unavailable.
+Connections saves this observed identity on new local associations. A saved
+association with missing identity can be associated deliberately with the
+current connection; existing task content is retained and no migration occurs.
+
+Data owns the narrow durable PM activity projection. Foundation owns selection,
+view composition and cancellation. The bridge supplies evidence and coverage;
+it does not rewrite task assignment, decisions, human attention or conversation
+content. Desktop-wide live observation remains a separate required integration
+until a supported desktop-owned event authority is actually connected.
+Explicit observer disposal or cancellation is silent and makes pending reads
+inert. It does not close the shared Core client or native connection.
 
 ## Source and acknowledgment boundaries
 
