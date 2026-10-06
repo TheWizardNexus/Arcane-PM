@@ -24,16 +24,83 @@ function field(form, label, name, value = '', multiline = false) {
     return input;
 }
 
-function taskColumn(task) {
+function taskColumn(task, activity) {
     if (task.attention || ['blocked', 'attention', 'needs-input', 'waiting-for-input', 'waiting', 'stalled'].includes(task.status)) return 'attention';
+    if (activity) {
+        if (['needs-input', 'needs-approval', 'error'].includes(activity.state)) return 'attention';
+        if (activity.state === 'working') return 'working';
+        if (activity.state === 'idle') return ['completed', 'complete', 'done'].includes(task.status) ? 'completed' : 'ready';
+    }
     if (['working', 'running', 'in-progress', 'preparing'].includes(task.status)) return 'working';
     if (['completed', 'complete', 'done'].includes(task.status)) return 'completed';
     return 'ready';
 }
 
 function statusText(task) {
-    if (task.attention) return 'Needs your input';
-    return task.status === 'idle' ? 'Ready for an assignment' : task.status.replaceAll('-', ' ');
+    const status = task.status === 'idle' ? 'Ready for an assignment' : task.status.replaceAll('-', ' ');
+    return `PM status: ${status}${task.attention ? ' · Needs your input' : ''}`;
+}
+
+function nativeStateText(state) {
+    const labels = {
+        working: 'Working',
+        'needs-input': 'Needs your input',
+        'needs-approval': 'Needs your approval',
+        idle: 'Idle',
+        error: 'Needs attention',
+        unknown: 'Unknown'
+    };
+    return labels[state] || labels.unknown;
+}
+
+function createTaskActivityPresentation() {
+    const node = element('section', 'pm-task-activity');
+    const heading = element('strong', '');
+    const currentState = element('p', 'pm-muted');
+    const message = element('p', '');
+    const timestamp = element('time', '');
+    const lastHeading = element('strong', '');
+    const lastMessage = element('p', '');
+    const lastTimestamp = element('time', '');
+    node.append(heading, currentState, message, timestamp, lastHeading, lastMessage, lastTimestamp);
+    node.hidden = true;
+
+    function setText(target, value) {
+        if (target.textContent !== value) target.textContent = value;
+        target.hidden = !value;
+    }
+
+    function showTime(target, value) {
+        target.hidden = !value;
+        if (!value) return;
+        target.dateTime = value;
+        setText(target, `Observed ${new Date(value).toLocaleString()}`);
+    }
+
+    function update(task, current) {
+        const activity = current || task?.nativeActivity;
+        node.hidden = !activity && task?.origin?.provider !== 'codex';
+        if (node.hidden) return;
+        node.dataset.current = String(Boolean(current));
+        if (current) {
+            setText(heading, `Current Codex activity: ${nativeStateText(current.state)}`);
+        } else if (activity?.availability === 'observed') {
+            setText(heading, `Saved Codex observation: ${nativeStateText(activity.state)}`);
+        } else if (activity) {
+            setText(heading, activity.availability === 'disconnected' ? 'Saved Codex observation: Disconnected' : 'Saved Codex observation: Unobserved');
+        } else {
+            setText(heading, 'Current Codex activity is unconfirmed');
+        }
+        setText(currentState, !current && activity ? 'Current activity is unconfirmed.' : '');
+        setText(message, activity?.message || '');
+        showTime(timestamp, activity?.observedAt);
+        const last = !current && activity?.availability !== 'observed' ? activity?.lastObserved : null;
+        setText(lastHeading, last ? `Last observed activity: ${nativeStateText(last.state)}` : '');
+        setText(lastMessage, last?.message || '');
+        showTime(lastTimestamp, last?.observedAt);
+    }
+
+    return {node, update};
 }
 
 function createTaskPortrait(face, modelsReady, signal) {
@@ -88,7 +155,7 @@ function createTaskPortrait(face, modelsReady, signal) {
 
 /** PM task presentation; the data and face owners retain their records and assets. */
 export function mountTeamView(container, options) {
-    const {pmData, projectId, onNavigate, onStatus, signal, modelsReady, workflowsReady} = options;
+    const {pmData, projectId, onNavigate, onStatus, signal, modelsReady, workflowsReady, taskActivityReady} = options;
     const heading = element('div', 'pm-page-heading');
     const titleBlock = element('div', '');
     titleBlock.append(element('p', 'pm-eyebrow', 'Your workspace'), element('h1', '', 'Your project team'), element('p', '', 'A familiar face for every task.'));
@@ -108,6 +175,10 @@ export function mountTeamView(container, options) {
     let disposed = false;
     let revision = 0;
     let guideView;
+    let records = new Map();
+    let pendingScan;
+    let taskActivity;
+    let unsubscribeActivity;
     const cards = new Map();
     const columns = new Map();
     const empty = element('section', 'pm-empty arcane-card');
@@ -235,9 +306,10 @@ export function mountTeamView(container, options) {
         const title = element('h3', 'pm-task-title', task.title);
         const state = element('p', 'pm-task-state', statusText(task));
         const description = element('p', 'pm-task-description', task.attention?.message || task.nextAction || task.assignment || 'Choose the next step for this task.');
+        const activity = createTaskActivityPresentation();
         const open = action('Open task →', openTask, true);
         open.classList.add('pm-task-link');
-        card.append(face, title, state, description, open);
+        card.append(face, title, state, activity.node, description, open);
         const portrait = createTaskPortrait(face, modelsReady, signal);
         return {node: card, update, dispose: portrait.dispose};
 
@@ -252,52 +324,99 @@ export function mountTeamView(container, options) {
             if (title.textContent !== nextTask.title) title.textContent = nextTask.title;
             if (state.textContent !== nextState) state.textContent = nextState;
             if (description.textContent !== nextDescription) description.textContent = nextDescription;
+            activity.update(nextTask, taskActivity?.current(nextTask.id));
             portrait.update(nextTask.faceRef);
+        }
+    }
+
+    function retainRecord(target, id, record) {
+        if (record && !record.archivedAt && (!projectId || record.projectId === projectId)) target.set(id, record);
+        else target.delete(id);
+    }
+
+    function taskChanged(change) {
+        if (disposed || signal?.aborted || change.recordType !== 'task') return;
+        pendingScan?.set(change.id, change.record);
+        retainRecord(records, change.id, change.record);
+        renderBoard(change.id);
+    }
+
+    function renderBoard(changedTaskId = null) {
+        if (disposed || signal?.aborted) return;
+        const tasks = [...records.values()].sort(function orderTasks(left, right) {
+            const created = String(left.createdAt).localeCompare(String(right.createdAt));
+            return created || left.id.localeCompare(right.id);
+        });
+        empty.hidden = Boolean(tasks.length);
+        const taskIds = new Set();
+        for (const task of tasks) taskIds.add(task.id);
+        for (const [id, card] of cards) {
+            if (taskIds.has(id)) continue;
+            card.dispose();
+            card.node.remove();
+            cards.delete(id);
+        }
+        for (const task of tasks) {
+            let card = cards.get(task.id);
+            const created = !card;
+            if (created) {
+                card = renderCard(task);
+                cards.set(task.id, card);
+            }
+            if (created || changedTaskId === null || changedTaskId === task.id) card.update(task);
+            const column = columns.get(taskColumn(task, taskActivity?.current(task.id)));
+            if (card.node.parentElement !== column.list) column.list.insertBefore(card.node, column.empty);
+        }
+        for (const [id, column] of columns) {
+            const group = tasks.filter(function belongsInColumn(task) { return taskColumn(task, taskActivity?.current(task.id)) === id; });
+            column.column.hidden = !tasks.length || (id === 'completed' && !group.length);
+            column.count.textContent = `${group.length} ${group.length === 1 ? 'task' : 'tasks'}`;
+            column.empty.hidden = Boolean(group.length);
+            for (const [index, task] of group.entries()) {
+                const card = cards.get(task.id);
+                // Stable task ordering leaves unchanged cards and their focused controls in place.
+                const position = column.list.children[index];
+                if (position !== card.node) column.list.insertBefore(card.node, position || null);
+            }
         }
     }
 
     async function refresh() {
         const currentRevision = ++revision;
+        const changes = new Map();
+        pendingScan = changes;
         try {
             const tasks = await pmData.listTasks({projectId: projectId || undefined, archived: false, signal});
             if (disposed || signal?.aborted || revision !== currentRevision) return;
+            const next = new Map();
+            for (const task of tasks) retainRecord(next, task.id, task);
+            for (const [id, record] of changes) retainRecord(next, id, record);
+            records = next;
             notice.hidden = true;
-            empty.hidden = Boolean(tasks.length);
-            const taskIds = new Set();
-            for (const task of tasks) taskIds.add(task.id);
-            for (const [id, card] of cards) {
-                if (taskIds.has(id)) continue;
-                card.dispose();
-                card.node.remove();
-                cards.delete(id);
-            }
-            for (const task of tasks) {
-                let card = cards.get(task.id);
-                if (!card) {
-                    card = renderCard(task);
-                    cards.set(task.id, card);
-                }
-                card.update(task);
-                const column = columns.get(taskColumn(task));
-                if (card.node.parentElement !== column.list) column.list.insertBefore(card.node, column.empty);
-            }
-            for (const [id, column] of columns) {
-                const group = tasks.filter(function belongsInColumn(task) { return taskColumn(task) === id; });
-                column.column.hidden = !tasks.length || (id === 'completed' && !group.length);
-                column.count.textContent = `${group.length} ${group.length === 1 ? 'task' : 'tasks'}`;
-                column.empty.hidden = Boolean(group.length);
-                for (const [index, task] of group.entries()) {
-                    const card = cards.get(task.id);
-                    // Stable task ordering leaves unchanged cards and their focused controls in place.
-                    const position = column.list.children[index];
-                    if (position !== card.node) column.list.insertBefore(card.node, position || null);
-                }
-            }
+            renderBoard();
         } catch (error) {
             if (disposed || signal?.aborted || revision !== currentRevision) return;
             console.error('Arcane PM task records could not be opened.', error);
             notice.hidden = false;
+        } finally {
+            if (pendingScan === changes) pendingScan = null;
         }
+    }
+
+    function connectActivity(service) {
+        if (disposed || signal?.aborted) return;
+        taskActivity = service;
+        unsubscribeActivity = service.subscribe(activityChanged, {signal, emitCurrent: true});
+    }
+
+    function activityChanged({taskId}) {
+        if (taskId === null || records.has(taskId)) renderBoard(taskId);
+    }
+
+    function activityFailed(error) {
+        if (disposed || signal?.aborted) return;
+        console.error('Arcane PM current task activity is unavailable.', error);
+        onStatus('Current Codex activity is unavailable. Saved task details remain available.');
     }
 
     function mountGuide(service) {
@@ -314,11 +433,13 @@ export function mountTeamView(container, options) {
     }
 
     workflowsReady?.then(mountGuide).catch(guideFailed);
-    const unsubscribe = pmData.subscribe(refresh, {signal});
+    taskActivityReady?.then(connectActivity).catch(activityFailed);
+    const unsubscribe = pmData.subscribe(taskChanged, {signal});
     refresh();
     function dispose() {
         disposed = true;
         unsubscribe();
+        unsubscribeActivity?.();
         guideView?.dispose();
         for (const card of cards.values()) card.dispose();
         cards.clear();
@@ -326,18 +447,23 @@ export function mountTeamView(container, options) {
     return {refresh, dispose};
 }
 
-export function mountTaskView(container, {pmData, projectId, taskId, onNavigate, onStatus, signal, modelsReady}) {
+export function mountTaskView(container, {pmData, projectId, taskId, onNavigate, onStatus, signal, modelsReady, taskActivityReady}) {
     let disposed = false;
     let revision = 0;
     let currentTask;
     let presentation;
     let portrait;
+    let taskActivity;
+    let unsubscribeActivity;
     container.replaceChildren(element('p', 'pm-notice', 'Opening task…'));
     const unsubscribe = pmData.subscribe(taskChanged, {signal});
+    taskActivityReady?.then(connectActivity).catch(activityFailed);
     refresh();
 
     function taskChanged(change) {
-        if (change.recordType === 'task' && change.id === taskId) refresh();
+        if (disposed || signal?.aborted || change.recordType !== 'task' || change.id !== taskId) return;
+        revision++;
+        presentTask(change.record);
     }
 
     async function refresh() {
@@ -345,29 +471,52 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         try {
             const task = await pmData.getTask(taskId);
             if (disposed || signal?.aborted || revision !== currentRevision) return;
-            if (!task) {
-                if (presentation) {
-                    presentation.notice.textContent = 'This PM record could not be found. Your entered text is still here.';
-                    presentation.notice.hidden = false;
-                    portrait.update(null);
-                } else {
-                    container.replaceChildren(element('h1', '', 'Task unavailable'), element('p', '', 'This PM record could not be found.'));
-                }
-                return;
-            }
-            currentTask = task;
-            if (!presentation) openTask(task);
-            presentation.notice.hidden = true;
-            const nextState = statusText(task);
-            const nextDescription = task.attention?.message || task.nextAction || task.assignment;
-            if (presentation.title.textContent !== task.title) presentation.title.textContent = task.title;
-            if (presentation.state.textContent !== nextState) presentation.state.textContent = nextState;
-            if (presentation.description.textContent !== nextDescription) presentation.description.textContent = nextDescription;
-            presentation.description.hidden = !nextDescription;
-            portrait.update(task.faceRef);
+            presentTask(task);
         } catch (error) {
             if (revision === currentRevision) failed(error);
         }
+    }
+
+    function presentTask(task) {
+        currentTask = task;
+        if (!task) {
+            if (presentation) {
+                presentation.notice.textContent = 'This PM record could not be found. Your entered text is still here.';
+                presentation.notice.hidden = false;
+                presentation.activity.update(null, null);
+                portrait.update(null);
+            } else {
+                container.replaceChildren(element('h1', '', 'Task unavailable'), element('p', '', 'This PM record could not be found.'));
+            }
+            return;
+        }
+        if (!presentation) openTask(task);
+        presentation.notice.hidden = true;
+        const nextState = statusText(task);
+        const nextDescription = task.attention?.message || task.nextAction || task.assignment;
+        if (presentation.title.textContent !== task.title) presentation.title.textContent = task.title;
+        if (presentation.state.textContent !== nextState) presentation.state.textContent = nextState;
+        if (presentation.description.textContent !== nextDescription) presentation.description.textContent = nextDescription;
+        presentation.description.hidden = !nextDescription;
+        presentation.activity.update(task, taskActivity?.current(taskId));
+        portrait.update(task.faceRef);
+    }
+
+    function connectActivity(service) {
+        if (disposed || signal?.aborted) return;
+        taskActivity = service;
+        unsubscribeActivity = service.subscribe(activityChanged, {signal, emitCurrent: true});
+    }
+
+    function activityChanged(change) {
+        if (disposed || signal?.aborted || !currentTask) return;
+        if (change.taskId === null || change.taskId === taskId) presentTask(currentTask);
+    }
+
+    function activityFailed(error) {
+        if (disposed || signal?.aborted) return;
+        console.error('Arcane PM current task activity is unavailable.', error);
+        onStatus('Current Codex activity is unavailable. Saved task details remain available.');
     }
 
     function openTask(task) {
@@ -379,9 +528,10 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         const title = element('h1', '', task.title);
         const state = element('p', 'pm-task-state');
         const description = element('p', 'pm-task-description');
+        const activity = createTaskActivityPresentation();
         const notice = element('p', 'pm-notice');
         notice.hidden = true;
-        summary.append(element('p', 'pm-eyebrow', 'Local task record'), title, state, description, notice);
+        summary.append(element('p', 'pm-eyebrow', 'Local task record'), title, state, activity.node, description, notice);
         header.append(face, summary);
         heading.append(header, action('Back to team', backToTeam, true));
         const form = element('form', 'pm-form arcane-card');
@@ -402,7 +552,7 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         form.append(actions);
         form.addEventListener('submit', saveTask);
         container.replaceChildren(heading, form);
-        presentation = {title, state, description, notice};
+        presentation = {title, state, description, notice, activity};
         portrait = createTaskPortrait(face, modelsReady, signal);
 
         async function saveTask(event) {
@@ -428,8 +578,8 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
             }
         }
 
-        function openHandoff() { onNavigate('handoffs', {projectId: currentTask.projectId, taskId}); }
-        function openFaces() { onNavigate('local-ai', {projectId: currentTask.projectId, taskId}); }
+        function openHandoff() { onNavigate('handoffs', {projectId: currentTask ? currentTask.projectId : task.projectId, taskId}); }
+        function openFaces() { onNavigate('local-ai', {projectId: currentTask ? currentTask.projectId : task.projectId, taskId}); }
     }
 
     function backToTeam() { onNavigate('team', {projectId}); }
@@ -441,6 +591,7 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
     function dispose() {
         disposed = true;
         unsubscribe();
+        unsubscribeActivity?.();
         portrait?.dispose();
     }
     return {refresh, dispose};

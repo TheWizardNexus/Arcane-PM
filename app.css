@@ -380,7 +380,9 @@ html {
 
 .pm-board > [hidden],
 .pm-task-list > [hidden],
-.pm-task-presentation > [hidden] {
+.pm-task-presentation > [hidden],
+.pm-task-activity[hidden],
+.pm-task-activity > [hidden] {
     display: none;
 }
 
@@ -502,6 +504,26 @@ a.pm-task-title:hover {
     font-size: .9rem;
     white-space: pre-wrap;
     color: var(--arcane-muted);
+}
+
+.pm-task-activity {
+    display: grid;
+    grid-column: 1 / -1;
+    gap: var(--arcane-space-2);
+    min-inline-size: 0;
+    padding-block: var(--arcane-space-3);
+    border-block-start: 1px solid var(--arcane-border);
+    font-size: .85rem;
+    white-space: pre-wrap;
+}
+
+.pm-task-activity > time {
+    font-size: .8rem;
+    color: var(--arcane-muted);
+}
+
+.pm-task-activity[data-current="true"] > strong:first-child {
+    color: var(--accent-color);
 }
 
 .pm-task-link {

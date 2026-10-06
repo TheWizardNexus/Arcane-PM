@@ -1,6 +1,7 @@
 import 'arcane-os/modules/HTMLImport.js';
 import {pmData, getStorage} from './data/index.js';
 import {mountTeamView, mountTaskView} from './ui/index.js';
+import {createTaskActivity} from './task-activity.js';
 
 const content = document.querySelector('#pm-content');
 const menu = document.querySelector('.pm-mobile-menu');
@@ -38,7 +39,12 @@ async function openBridge() {
     const module = await import('./bridge/index.js');
     const bridge = module.createCodexBridge();
     bridge.subscribe(updateConnection, {signal: lifetime.signal, emitCurrent: true});
-    return {bridge, mountConnectionsView: module.mountConnectionsView};
+    const taskActivity = createTaskActivity({pmData, bridge, signal: lifetime.signal, onError: onStatus});
+    return {bridge, taskActivity, mountConnectionsView: module.mountConnectionsView};
+}
+
+function getTaskActivity() {
+    return getBridge().then(function readTaskActivity(connection) { return connection.taskActivity; });
 }
 
 function bridgeFailed(error) {
@@ -281,12 +287,12 @@ function renderRoute() {
     if (route === 'team') {
         currentView = mountTeamView(
             content,
-            {...options, modelsReady: getModels(), workflowsReady: getWorkflows()}
+            {...options, modelsReady: getModels(), workflowsReady: getWorkflows(), taskActivityReady: getTaskActivity()}
         );
         return;
     }
     if (route === 'task') {
-        currentView = mountTaskView(content, {...options, modelsReady: getModels()});
+        currentView = mountTaskView(content, {...options, modelsReady: getModels(), taskActivityReady: getTaskActivity()});
         return;
     }
     const heading = document.createElement('h1');
@@ -356,6 +362,7 @@ async function releaseServices(results) {
         const service = result.value;
         if (service.dispose) closing.push(service.dispose());
         else {
+            service.taskActivity?.dispose?.();
             service.bridge?.dispose?.();
             service.workflows?.dispose?.();
             service.sources?.dispose?.();
