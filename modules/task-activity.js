@@ -1,14 +1,17 @@
 import {createArcaneEventSource} from 'arcane-os/event-manager';
 
-function sameOrigin(left, right) {
+function sameNativeTask(left, right) {
     return left?.provider === 'codex' && right?.provider === 'codex'
-        && left.accountId === right.accountId && left.hostId === right.hostId
-        && left.threadId === right.threadId;
+        && left.hostId === right.hostId && left.threadId === right.threadId;
+}
+
+function sameOrigin(left, right) {
+    return sameNativeTask(left, right) && left.accountId === right.accountId;
 }
 
 function completeOrigin(origin) {
     return origin?.provider === 'codex'
-        && ['accountId', 'hostId', 'threadId'].every(function hasIdentity(field) {
+        && ['hostId', 'threadId'].every(function hasIdentity(field) {
             return typeof origin[field] === 'string' && origin[field].trim();
         });
 }
@@ -44,7 +47,7 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
     function setAssociation(taskId, origin, notify = true) {
         const previous = associations.get(taskId);
         const next = completeOrigin(origin) ? origin : null;
-        if ((!previous && !next) || sameOrigin(previous, next)) return false;
+        if ((!previous && !next) || sameNativeTask(previous, next)) return false;
         if (previous) {
             const members = byThread.get(previous.threadId);
             members.delete(taskId);
@@ -64,7 +67,8 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
 
     function belongsToConnection(origin) {
         const identity = snapshot?.connection.originIdentity;
-        return identity && origin?.accountId === identity.accountId
+        return identity?.provider === 'codex' && origin?.provider === 'codex'
+            && typeof identity.accountId === 'string' && identity.accountId.trim()
             && origin?.hostId === identity.hostId;
     }
 
@@ -147,7 +151,8 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
             const removed = rowsByThread.get(threadId);
             rowsByThread.delete(threadId);
             for (const taskId of byThread.get(threadId) || []) {
-                if (!sameOrigin(associations.get(taskId), removed?.origin)) continue;
+                const work = observations.get(taskId);
+                if (!sameOrigin(work?.latest?.row.origin, removed?.origin)) continue;
                 observations.delete(taskId);
                 publish(taskId);
             }
@@ -171,7 +176,10 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
 
     function retainTaskRow(taskId, row) {
         const origin = associations.get(taskId);
-        if (!sameOrigin(origin, row.origin)) return;
+        if (!sameNativeTask(origin, row.origin)) return;
+        // A new account's awaiting-status row is indexed for current coverage,
+        // while the previous account's real loss observation can still commit.
+        if (!row.observedAt) return;
         let work = observations.get(taskId);
         if (!work) {
             work = {taskId, origin, latest: null, pending: null, confirmed: null, running: false};
@@ -183,9 +191,7 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
             && previous.row.observationRevision === row.observationRevision) return;
         const latest = {row, observerId: snapshot.observerId};
         work.latest = latest;
-        // An awaiting-status placeholder has no native observation timestamp to save.
-        work.pending = row.observedAt ? latest : null;
-        if (!work.pending) return;
+        work.pending = latest;
         if (!work.running) drain(work);
     }
 
@@ -199,7 +205,7 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
                     return !disposed && work.latest === expected
                         && observations.get(work.taskId) === work
                         && snapshot?.observerId === expected.observerId
-                        && sameOrigin(associations.get(work.taskId), expected.row.origin);
+                        && sameNativeTask(associations.get(work.taskId), expected.row.origin);
                 }
                 try {
                     const result = await pmData.applyNativeTaskObservation(work.taskId, expected.row, {
@@ -225,6 +231,10 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
         const identity = connection?.originIdentity;
         if (!confirmed || !connection?.connected || !identity) return null;
         const row = confirmed.observation.row;
+        const indexedRow = rowsByThread.get(row.threadId);
+        if (!indexedRow || indexedRow.observationId !== row.observationId
+            || indexedRow.observationRevision !== row.observationRevision
+            || !sameOrigin(indexedRow.origin, row.origin)) return null;
         if (confirmed.observation !== work.latest || row.availability !== 'observed' || !row.coverage.live) return null;
         if (row.origin.accountId !== identity.accountId || row.origin.hostId !== identity.hostId) return null;
         return confirmed.activity;
