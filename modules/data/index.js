@@ -5,6 +5,7 @@ export const DATA_CHANGED_EVENT = 'arcane-pm.data.changed';
 const tables = {project: 'pm_projects', task: 'pm_tasks'};
 const pendingEdits = new Map();
 const knownRecords = {project: new Set(), task: new Set()};
+const pendingListReads = {project: new Map(), task: new Map()};
 const pendingRefreshes = new Map();
 let activeRefreshes = 0;
 let storagePromise;
@@ -49,6 +50,8 @@ async function openStorage() {
     globalThis.addEventListener('pagehide', function closeRecordNotifications(event) {
         resumeRevision++;
         pendingRefreshes.clear();
+        pendingListReads.project.clear();
+        pendingListReads.task.clear();
         if (event.persisted) return;
         lifetime.abort();
         knownRecords.project.clear();
@@ -88,10 +91,12 @@ function storageRecordChanged(occurrence) {
     });
     if (!recordType) return;
     if (change.action === 'table-delete') {
+        pendingListReads[recordType].clear();
         for (const id of knownRecords[recordType]) queueRecordRefresh(recordType, id);
         return;
     }
     if (!change.fileName?.endsWith('.json')) return;
+    pendingListReads[recordType].delete(change.fileName);
     const id = decodeURIComponent(change.fileName.replace(/\.json$/, ''));
     if (change.remote) queueRecordRefresh(recordType, id);
     // Local PM writers publish the precise domain event after their SDK write.
@@ -117,7 +122,9 @@ function refreshChangedRecords() {
             activeRefreshes--;
             refreshChangedRecords();
         }).catch(function reportRecordRefreshFailure(error) {
-            console.error('Arcane PM could not refresh a changed saved record.', error);
+            console.error('Arcane PM could not refresh a changed saved record.', error, {
+                recordType: pending.recordType, id: pending.id
+            });
         });
     }
 }
@@ -131,7 +138,9 @@ async function refreshChangedRecord(pending) {
         } catch (error) {
             if (pendingRefreshes.get(pending.key) === pending) {
                 if (pending.revision !== revision) {
-                    console.error('Arcane PM could not read an earlier changed saved record.', error);
+                    console.error('Arcane PM could not read an earlier changed saved record.', error, {
+                        recordType: pending.recordType, id: pending.id
+                    });
                     continue;
                 }
                 pendingRefreshes.delete(pending.key);
@@ -326,6 +335,19 @@ async function readRecord(recordType, id) {
     return readStoredRecord(await db.get(tables[recordType], key, true), recordType, id);
 }
 
+/** Share only in-flight list I/O; the SDK owns cached values and invalidation. */
+function readListedValue(db, recordType, key) {
+    const pending = pendingListReads[recordType];
+    if (pending.has(key)) return pending.get(key);
+    const read = db.get(tables[recordType], key);
+    pending.set(key, read);
+    function releaseListedRead() {
+        if (pending.get(key) === read) pending.delete(key);
+    }
+    read.then(releaseListedRead, releaseListedRead);
+    return read;
+}
+
 function publishChange(recordType, action, id, record, changedFields = null) {
     pendingRefreshes.delete(`${recordType}:${id}`);
     if (record === null) knownRecords[recordType].delete(id);
@@ -410,7 +432,7 @@ async function listRecords(recordType, options) {
             try {
                 const id = decodeURIComponent(key.replace(/\.json$/, ''));
                 knownRecords[recordType].add(id);
-                const record = readStoredRecord(await db.get(tables[recordType], key, true), recordType, id);
+                const record = readStoredRecord(await readListedValue(db, recordType, key), recordType, id);
                 if (record === null) continue;
                 if (options.archived !== undefined && Boolean(record.archivedAt) !== options.archived) continue;
                 if (options.projectId !== undefined && record.projectId !== options.projectId) continue;
@@ -436,6 +458,7 @@ async function listRecords(recordType, options) {
             return failure.error;
         }), `Some saved ${recordType} records could not be read.`);
         error.code = 'PM_DATA_RECORD_UNREADABLE';
+        error.recordType = recordType;
         error.records = records;
         error.failures = failures;
         throw error;
@@ -1021,6 +1044,12 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
             && coverage.threads.complete && (!catalog || catalog.coverage?.complete === true)) result.status = 'complete';
         return result;
     }).catch(function retainPartialDiscovery(error) {
+        if (error.code === 'PM_DATA_RECORD_UNREADABLE' && error.failures) {
+            result.reason = 'saved-inventory-unreadable';
+            for (const failure of error.failures) {
+                result.failures.push({stage: 'saved-inventory', recordType: error.recordType, ...failure});
+            }
+        }
         error.discoveryResult = result;
         throw error;
     });

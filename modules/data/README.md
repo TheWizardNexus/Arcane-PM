@@ -64,6 +64,18 @@ not rewrite stored content.
 Task `projectId:null` explicitly selects unassociated tasks. Omitted filters
 select all values. No account filter is implicitly applied.
 
+Ordinary lists use the SDK's current value cache. Overlapping lists share only
+an in-flight read of the same table and filename; each caller keeps its own
+enumeration, complete record copies, filters, sorting and cancellation. A
+cancelled caller does not cancel another caller's shared file read. Settled
+values remain owned solely by DBOPFS; Data retains no completed-list snapshot.
+Local and remote committed changes retire the affected pending read, table
+deletion retires that table's pending reads, and `pagehide` clears both sets.
+Later readers therefore use the SDK's updated or invalidated value. Explicit
+single-record reads, mutation reads and changed-record refreshes remain forced.
+A cold list still reads every record before filtering; this sharing removes
+duplicate file I/O without imposing a record cap or reducing query coverage.
+
 ## Record shapes
 
 Every record has a generated stable UUID `id`, `createdAt` and `updatedAt` ISO
@@ -447,8 +459,15 @@ starts discovery and retains no suppression or tombstone record.
 `PM_DATA_RECORD_UNREADABLE` identifies a saved row that cannot be read as the
 expected PM record, and `PM_DATA_STORAGE_UNAVAILABLE` identifies unavailable
 browser storage. Original SDK/platform storage failures propagate intact.
-List failure exposes readable records and per-record failures on the thrown
-aggregate error so incomplete coverage is never reported as a complete list.
+List failure exposes `recordType`, complete readable `records`, and per-record
+`failures` containing the exact filename and original error on the thrown
+aggregate, so incomplete coverage is never reported as a complete list. Callers
+can display these readable records with an incomplete-coverage state while
+retaining previously displayed unread rows. A failed read is not a removal.
+When initial saved inventory prevents discovery, its error retains those same
+records and failures; `discoveryResult.reason` is `saved-inventory-unreadable`
+and its failures identify the `saved-inventory` stage and record type. Discovery
+does not infer missing identities or create replacements from unreadable rows.
 Cancellation uses `AbortError`; a write already accepted by OPFS completes.
 
 Committed changes publish canonical SDK event `arcane-pm.data.changed` from
@@ -477,7 +496,8 @@ the same record supersedes an in-flight refresh, and a local committed change
 prevents an older refresh from replacing its event. A table deletion refreshes
 the IDs already encountered by this document's reads and writes; it does not
 enumerate the catalog. No record-body shadow cache or durable notification log
-is retained. Refresh read failures reach developer diagnostics and preserve the
+is retained. Refresh read failures include the record type, ID and original
+error in developer diagnostics and preserve the
 caller's existing displayed record rather than presenting a failed read as a
 removal. Explicit list/read operations retain their ordinary failure contract.
 
@@ -546,8 +566,9 @@ DBOPFS, application scope and canonical events. Native filesystem and Codex
 operations stay with the bridge. No SDK or OS source is changed.
 
 Connection initialization is invariant once per page; a mutation touches one PM
-record. Lists enumerate the selected table once and read each selected record
-once. Only overlapping edits to the same record serialize; independent records
-remain concurrent. The caller renders and acknowledges before awaiting storage.
-All reads/writes use asynchronous SDK I/O. Runtime timing is unmeasured until
-authorized browser verification. No local tests, checks, or builds are selected.
+record. Each list enumerates its selected table once. Overlapping lists share
+pending file reads and later lists reuse valid SDK values; cold lists still
+read the full inventory with four readers per caller. Only overlapping edits
+to the same record serialize; independent records remain concurrent. The caller
+renders and acknowledges before awaiting storage. All reads/writes use
+asynchronous SDK I/O. No local tests, checks, or builds are selected.
