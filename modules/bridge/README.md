@@ -118,8 +118,14 @@ The application-owned `discoverTasks` callback composes broad discovery and
 idempotent Data mapping. Connections consumes the returned wrapper, and exact
 ID lookup retains the same catalog for its deliberate Add action. That action
 also uses `pmData.syncNativeDiscovery`; it has no competing project creator.
-Existing partial identities require an explicit saved-task association, with
-separate choices when more than one saved task matches. A selected PM project
+Saved tasks match by provider and exact nonblank host and thread IDs, independent
+of their historical observing account. One match opens that existing PM record;
+multiple matches present explicit row choices, including when Data returns
+several associations after mapping. Opening a choice rereads that saved row.
+Existing associations with a missing host require an explicit saved-task choice;
+that action fills only the host and preserves the historical account and other
+origin fields. Current connection/account checks still bind new native reads
+and mapping to the selected connection. A selected PM project
 applies only to a deliberate exact single-task association. There is no polling
 or discovery triggered by PM record removal.
 
@@ -229,8 +235,10 @@ origin/task within the current observer lifetime.
 originIdentity}` only when that identity remained the same across the read.
 The complete native payload remains unchanged when identity is unavailable.
 Connections saves this observed identity on new local associations. A saved
-association with missing identity can be associated deliberately with the
-current connection; existing task content is retained and no migration occurs.
+association with a missing host can be associated deliberately with the current
+host; its historical observing account and existing task content are retained.
+A complete host/thread association remains usable when the observing account
+differs or is absent. No migration occurs.
 
 Data owns the narrow durable PM activity projection. Foundation owns selection,
 view composition and cancellation. The bridge supplies evidence and coverage;

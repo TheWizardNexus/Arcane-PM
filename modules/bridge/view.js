@@ -207,24 +207,17 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
                     showOperation('Find this task with an identified Codex account and host before associating it.');
                     return;
                 }
-                const match = existing.find(function sameNativeThread(task) {
-                    return task.origin?.provider === 'codex' && task.origin.threadId === thread.id
-                        && (task.origin.accountId ?? null) === (originIdentity?.accountId ?? null)
-                        && (task.origin.hostId ?? null) === (originIdentity?.hostId ?? null);
-                });
-                if (match) {
-                    showOperation('This Codex task is already in PM.');
-                    onNavigate?.('task', {projectId: match.projectId, taskId: match.id});
+                const matches = existing.filter(sameNativeThread);
+                if (matches.length) {
+                    await offerSavedTasks(matches, 'This Codex task is already in PM.');
                     return;
                 }
                 const unassociated = existing.filter(function missingNativeIdentity(task) {
                     return task.origin?.provider === 'codex' && task.origin.threadId === thread.id
-                        && (!task.origin.accountId || !task.origin.hostId)
-                        && (!task.origin.accountId || task.origin.accountId === originIdentity.accountId)
-                        && (!task.origin.hostId || task.origin.hostId === originIdentity.hostId);
+                        && (typeof task.origin.hostId !== 'string' || task.origin.hostId.trim() === '');
                 });
                 if (unassociated.length) {
-                    showOperation('This task has a saved association without its account and host. Associate it with this connection to observe available activity.');
+                    showOperation('This task has a saved association without its host. Associate it with this host to observe available activity.');
                     const choices = document.createElement('div');
                     choices.className = 'pm-actions';
                     for (const saved of unassociated) {
@@ -241,9 +234,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
                             pageSignal.throwIfAborted();
                             if (!current || current.origin?.provider !== 'codex'
                                 || current.origin.threadId !== thread.id
-                                || (current.origin.accountId && current.origin.hostId)
-                                || (current.origin.accountId && current.origin.accountId !== selectedIdentity.accountId)
-                                || (current.origin.hostId && current.origin.hostId !== selectedIdentity.hostId)) {
+                                || (typeof current.origin.hostId === 'string' && current.origin.hostId.trim() !== '')) {
                                 showOperation('The saved association changed. Find this task again.');
                                 return;
                             }
@@ -252,7 +243,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
                                 return;
                             }
                             const task = await pmData.updateTask(current.id, {
-                                origin: {...current.origin, ...selectedIdentity}
+                                origin: {...current.origin, hostId: selectedIdentity.hostId}
                             });
                             showOperation('Task connection associated locally.');
                             if (!pageSignal.aborted) onNavigate?.('task', {projectId: task.projectId, taskId: task.id});
@@ -280,18 +271,54 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
                     ...(workspace.threads?.thread && projectId ? {projectId} : {})
                 });
                 pageSignal.throwIfAborted();
-                const association = mapped.associations?.find(function selectedAssociation(value) {
+                const associations = mapped.associations?.filter(function selectedAssociation(value) {
                     return value.threadId === thread.id;
-                });
-                if (!association) {
+                }) ?? [];
+                if (!associations.length) {
                     console.info('Arcane PM task discovery association result', mapped);
                     showOperation('The task association is incomplete. Refresh discovery to read its current account and project assignment.');
                     return;
                 }
-                showOperation('Task association saved locally.');
-                onNavigate?.('task', {projectId: association.projectId, taskId: association.taskId});
+                const mappedTasks = new Map((mapped.tasks ?? []).map(task => [task.id, task]));
+                await offerSavedTasks(associations.map(function associatedTask(association) {
+                    return {id: association.taskId, title: mappedTasks.get(association.taskId)?.title};
+                }), 'Task association saved locally.');
             });
             article.append(associationAction);
+
+            function sameNativeThread(task) {
+                return task.origin?.provider === 'codex' && task.origin.threadId === thread.id
+                    && typeof thread.id === 'string' && thread.id.trim() !== ''
+                    && typeof task.origin.hostId === 'string' && task.origin.hostId.trim() !== ''
+                    && task.origin.hostId === identity?.originIdentity?.hostId;
+            }
+
+            async function openSavedTask(saved, message) {
+                const current = await pmData.getTask(saved.id, {signal: pageSignal});
+                pageSignal.throwIfAborted();
+                if (!current || !sameNativeThread(current)) {
+                    showOperation('The saved association changed. Find this task again.');
+                    return;
+                }
+                showOperation(message);
+                onNavigate?.('task', {projectId: current.projectId, taskId: current.id});
+            }
+
+            async function offerSavedTasks(tasks, message) {
+                if (tasks.length === 1) {
+                    await openSavedTask(tasks[0], message);
+                    return;
+                }
+                showOperation('This Codex task has several saved PM records. Choose the record to open.');
+                const choices = document.createElement('div');
+                choices.className = 'pm-actions';
+                for (const saved of tasks) {
+                    choices.append(button(`Open ${saved.title || saved.id} (${saved.id})`, async function openSelectedTask() {
+                        await openSavedTask(saved, message);
+                    }));
+                }
+                associationAction.replaceWith(choices);
+            }
         }
         results.append(article);
 
