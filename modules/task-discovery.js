@@ -5,8 +5,8 @@ export function createTaskDiscovery({pmData, bridge, signal, onStatus} = {}) {
     const operations = new Map();
     let connection = null;
     let connectionLifetime = null;
-    let lastConnection = null;
-    let baselineEstablished = false;
+    let connecting = null;
+    let connectIntent = null;
     let closed = lifetimeSignal.aborted;
 
     function sameConnection(left, right) {
@@ -31,22 +31,52 @@ export function createTaskDiscovery({pmData, bridge, signal, onStatus} = {}) {
             connectionLifetime = null;
             connection = null;
             operations.clear();
-            if (state.state === 'connecting' || (state.available && state.connected === false)) {
-                baselineEstablished = true;
-            }
+            if (state.state !== 'connecting' && state.state !== 'connected') connectIntent = null;
             return;
         }
-        if (connection && sameConnection(next, connection)) return;
-        connectionLifetime?.abort();
-        operations.clear();
-        connection = next;
-        connectionLifetime = new AbortController();
-        const discover = baselineEstablished && !sameConnection(next, lastConnection);
-        lastConnection = next;
-        baselineEstablished = true;
-        // An existing connection replay establishes a baseline. Reloading a page
-        // must not recreate a PM record that the user deliberately removed.
-        if (discover) discoverTasks().catch(reportAutomaticFailure);
+        if (!connection || !sameConnection(next, connection)) {
+            connectionLifetime?.abort();
+            operations.clear();
+            connection = next;
+            connectionLifetime = new AbortController();
+        }
+        if (connectIntent && state.state === 'connected') {
+            connectIntent = null;
+            discoverTasks().catch(reportAutomaticFailure);
+        }
+    }
+
+    function connectCodex({signal: callerSignal} = {}) {
+        lifetimeSignal.throwIfAborted();
+        callerSignal?.throwIfAborted();
+        if (!connecting) {
+            const intent = {};
+            connectIntent = intent;
+            const task = connectWorkspace(intent);
+            connecting = task;
+            task.then(releaseConnection, releaseConnection);
+            function releaseConnection() {
+                if (connecting === task) connecting = null;
+            }
+        }
+        return waitForOperation(connecting, callerSignal);
+    }
+
+    async function connectWorkspace(intent) {
+        try {
+            // Connect returns while native startup continues. This document's
+            // intent waits for the observed account/host identity, even if its
+            // Connections view closes. Other documents observe without scanning.
+            const result = await bridge.connect(
+                {signal: lifetimeSignal}
+            );
+            lifetimeSignal.throwIfAborted();
+            if (result.status === 'unavailable' && connectIntent === intent) connectIntent = null;
+            return result;
+        } catch (error) {
+            if (connectIntent === intent) connectIntent = null;
+            throw error;
+        }
     }
 
     function reportAutomaticFailure(error) {
@@ -116,6 +146,7 @@ export function createTaskDiscovery({pmData, bridge, signal, onStatus} = {}) {
 
     function waitForOperation(task, callerSignal) {
         if (!callerSignal) return task;
+        callerSignal.throwIfAborted();
         return new Promise(function observeDiscovery(resolve, reject) {
             function cancelled() {
                 reject(callerSignal.reason);
@@ -134,6 +165,7 @@ export function createTaskDiscovery({pmData, bridge, signal, onStatus} = {}) {
     function dispose() {
         if (closed) return;
         closed = true;
+        connectIntent = null;
         lifetime.abort();
         connectionLifetime?.abort();
         stop();
@@ -141,5 +173,5 @@ export function createTaskDiscovery({pmData, bridge, signal, onStatus} = {}) {
     }
 
     const stop = bridge.subscribe(observeConnection, {signal: lifetimeSignal, emitCurrent: true});
-    return {discoverTasks, dispose};
+    return {connectCodex, discoverTasks, dispose};
 }

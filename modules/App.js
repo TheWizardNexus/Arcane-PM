@@ -47,7 +47,8 @@ async function openBridge() {
     bridge.subscribe(updateConnection, {signal: lifetime.signal, emitCurrent: true});
     const taskActivity = createTaskActivity({pmData, bridge, signal: lifetime.signal, onError: onStatus});
     const taskDiscovery = createTaskDiscovery({pmData, bridge, signal: lifetime.signal, onStatus});
-    return {bridge, taskActivity, taskDiscovery, discoverTasks: taskDiscovery.discoverTasks,
+    return {bridge, taskActivity, taskDiscovery, connectCodex: taskDiscovery.connectCodex,
+        discoverTasks: taskDiscovery.discoverTasks,
         mountConnectionsView: module.mountConnectionsView};
 }
 
