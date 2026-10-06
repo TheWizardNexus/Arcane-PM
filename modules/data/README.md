@@ -47,6 +47,8 @@ Records returned to callers are independent copies of SDK cached records.
 | Remove only selected task record | `removeTaskRecord(id)` |
 | Deliberately select a face | `setTaskFace(id, faceRef)` |
 | Attach an automatic first face conditionally | `setTaskFaceIfEmpty(id, faceRef, {isCurrent?, signal?} = {})` |
+| Find explicit native task associations | `listNativeTaskAssociations({accountId?, hostId?, signal?} = {})` |
+| Apply one actual native observation | `applyNativeTaskObservation(id, bridgeThreadObservation, {isCurrent, signal?})` |
 | Observe committed changes | `subscribe(handler, {signal?} = {})` returning unsubscribe |
 
 Lists include archived records by default, preserve complete records, and sort
@@ -91,6 +93,9 @@ Task fields:
 - `faceRef`: stable face ID string or `null`; only an explicit change replaces it.
 - `decisions`, `openQuestions`: arrays of complete strings.
 - `attention`: `{message, requestedAt, sourceRef?}` or `null`.
+- `nativeActivity`: latest narrow native observation or `null` for a newly
+  created task. Existing records can omit it. Only the native observation
+  operation writes this member; ordinary task updates preserve it.
 
 `origin` carries only `{provider, accountId?, projectId?, threadId?, hostId?, url?}`.
 `provider` is a string; omitted reference members default to `null`. Account
@@ -127,6 +132,93 @@ the write. An OPFS write already accepted completes. A manual choice already
 saved prevents automatic assignment; a manual choice queued afterward replaces
 the automatic face through the same edit boundary. Other task fields, including
 archive state, remain unchanged.
+
+### Native activity on explicitly associated tasks
+
+`listNativeTaskAssociations` returns `{taskId, origin}` records for exact
+`provider:'codex'`, `accountId` and `hostId` matches, including archived tasks.
+Omitted filters return all complete explicit associations in one scan, allowing
+the composing owner to change its connection selection without another scan.
+Each origin contains only `provider`, `accountId`, `hostId` and `threadId`.
+The bridge owns those identities: account ID comes from the connected native
+account's actual workspace routing, and host ID is the reported native hostname.
+A hostname is an observed host reference, not a claim of global uniqueness.
+Missing identities are not guessed from a selected account, email, process ID,
+working folder or thread ID alone. Existing records require deliberate
+re-association through the bridge owner when their original identity is missing.
+
+Subscribe to committed data changes before this one association scan, then keep
+the caller's association index current from those changes. Each observation
+applies only to an existing selected PM ID; there is no automatic import,
+creation, re-association, account migration, or per-event table scan. Removing a
+PM task cannot cause the next native event to recreate it. Multiple deliberately
+associated PM records remain separate records.
+
+`applyNativeTaskObservation` accepts the bridge's complete per-thread observation
+without rewriting it. The bridge contract supplies `threadId`, exact `origin`,
+`availability`, native `status`, transient `turn` and `pendingRequests`, complete
+application-owned `message`, actual `observedAt`, and `coverage`. Data projects
+only these narrow application-owned fields into `task.nativeActivity`:
+
+```js
+{
+    origin: {provider: 'codex', accountId, hostId, threadId},
+    availability: 'observed', // observed | unobserved | disconnected
+    state: 'working', // working | needs-input | needs-approval | idle | error | unknown
+    message,
+    observedAt,
+    coverage: {scope: 'connected-server', live: true, reason: null},
+    lastObserved: {state: 'working', message, observedAt}
+}
+```
+
+An actual pending input request or `waitingOnUserInput` flag maps to
+`needs-input`. Otherwise an actual pending approval or `waitingOnApproval` flag
+maps to `needs-approval`. These request observations can exist before a native
+status is available. Without a pending request, native `active` maps to
+`working`. Native `idle`
+remains `idle`, and `systemError` maps to `error`. Unrecognized states remain
+`unknown`. Unobserved or disconnected availability always yields current state
+`unknown` and non-live coverage. Native `notLoaded` is unobserved at the bridge
+boundary, since another desktop-owned server may still be running that task.
+Idle is never inferred to mean the PM task is completed. Imported conversation
+turn status does not establish current activity and is not used here.
+
+The last actual known observation is retained in `lastObserved` when current
+coverage is lost. The current message and timestamp describe that loss; the
+separate historical timestamp continues to describe the last known activity.
+No timer invents a stalled state. Saved coverage describes the observation at
+its timestamp: a reload must label saved activity historical until the current
+bridge observer supplies its authoritative state. It is not proof that the
+connection is still live. Manual `status`, `attention`, observations, content,
+faces, source/result references and archive state remain unchanged.
+
+The required synchronous boolean `isCurrent()` predicate belongs to the
+composing owner. It checks the current bridge observer/revision and connection
+lifetime inside the existing same-record edit boundary after reading the latest
+task. The bridge suppresses stale seed results and retires old connections;
+the caller invalidates its queued work when either changes. `signal` cancels
+pending work and is checked immediately before a durable write. An OPFS write
+already accepted completes. No observer, revision, connection, request or turn
+protocol identifier is persisted by this operation.
+
+Results are `{applied, reason, task}` with `task:null` only for `task-missing`.
+Other no-write reasons are `origin-mismatch`, `observation-stale`,
+`older-observation` and `unchanged`. Older actual timestamps cannot replace a
+newer saved observation for the same exact origin. An identical replay does not
+write or emit. Successful writes return `applied:true`, `reason:'observed'` and
+the saved task, then use the ordinary committed data event. A malformed
+observation or asynchronous/nonboolean predicate is `PM_DATA_INPUT`; storage
+failures propagate. The operation appends no raw event log or growing history.
+
+This is the PM domain mapping boundary. Native reads, subscription coverage,
+account lifecycle and original protocol remain with the bridge; subscription
+composition and card presentation remain with the foundation owner. One initial
+association scan reads each task once. Each changed observation reads and writes
+only its selected PM record; replay and stale outcomes perform no write. Work
+for separate tasks can proceed independently, while only same-record writes
+serialize. No model request, native mutation, polling, dependency change,
+local test or build is selected by these APIs.
 
 ## Archive and removal
 

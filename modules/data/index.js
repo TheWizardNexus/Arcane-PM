@@ -343,7 +343,8 @@ export async function createTask(input) {
         id: crypto.randomUUID(), title: changes.title, projectId: null, assignment: '',
         workFolder: null, origin: null, assignee: null, status: 'idle', observedEvidence: [],
         sourceRefs: [], resultRefs: [], faceRef: null, decisions: [], openQuestions: [],
-        attention: null, nextAction: '', createdAt: now, updatedAt: now, archivedAt: null
+        attention: null, nextAction: '', nativeActivity: null,
+        createdAt: now, updatedAt: now, archivedAt: null
     };
     Object.assign(record, changes);
     return saveNew('task', record);
@@ -406,6 +407,138 @@ export async function setTaskFaceIfEmpty(id, faceRef, {isCurrent, signal} = {}) 
     });
 }
 
+function sameNativeOrigin(left, right) {
+    return left?.provider === 'codex' && right?.provider === 'codex'
+        && left.accountId === right.accountId && left.hostId === right.hostId
+        && left.threadId === right.threadId;
+}
+
+function nativeActivityOrigin(value) {
+    requireRecord(value, 'native activity origin');
+    if (value.provider !== 'codex') {
+        throw dataError('PM_DATA_INPUT', 'Native task activity requires a Codex origin.');
+    }
+    return {
+        provider: 'codex', accountId: text(value.accountId, 'origin.accountId', true),
+        hostId: text(value.hostId, 'origin.hostId', true),
+        threadId: text(value.threadId, 'origin.threadId', true)
+    };
+}
+
+/** Enumerate existing explicit associations once; no task is imported or reassigned. */
+export async function listNativeTaskAssociations({accountId, hostId, signal} = {}) {
+    if (accountId !== undefined) text(accountId, 'accountId', true);
+    if (hostId !== undefined) text(hostId, 'hostId', true);
+    const tasks = await listTasks({signal});
+    const associations = [];
+    for (const task of tasks) {
+        const origin = task.origin;
+        if (origin?.provider !== 'codex') continue;
+        if (typeof origin.accountId !== 'string' || !origin.accountId.trim()) continue;
+        if (typeof origin.hostId !== 'string' || !origin.hostId.trim()) continue;
+        if (typeof origin.threadId !== 'string' || !origin.threadId.trim()) continue;
+        if (accountId !== undefined && origin.accountId !== accountId) continue;
+        if (hostId !== undefined && origin.hostId !== hostId) continue;
+        associations.push({taskId: task.id, origin: nativeActivityOrigin(origin)});
+    }
+    return associations;
+}
+
+function projectNativeActivity(observation) {
+    requireRecord(observation, 'native activity observation');
+    const origin = nativeActivityOrigin(observation.origin);
+    if (observation.threadId !== origin.threadId) {
+        throw dataError('PM_DATA_INPUT', 'The observation and origin must identify the same native thread.');
+    }
+    const {availability, observedAt, coverage} = observation;
+    if (!['observed', 'unobserved', 'disconnected'].includes(availability)) {
+        throw dataError('PM_DATA_INPUT', 'Native activity availability is not supported.');
+    }
+    text(observedAt, 'observedAt', true);
+    if (!Number.isFinite(Date.parse(observedAt))) {
+        throw dataError('PM_DATA_INPUT', 'Native activity requires its actual observation timestamp.');
+    }
+    requireRecord(coverage, 'native activity coverage');
+    if (coverage.scope !== 'connected-server' || typeof coverage.live !== 'boolean') {
+        throw dataError('PM_DATA_INPUT', 'Native activity requires connected-server coverage.');
+    }
+    let state = 'unknown';
+    if (availability === 'observed') {
+        const nativeStatus = observation.status;
+        const flags = nativeStatus?.activeFlags || [];
+        const requests = observation.pendingRequests || [];
+        if (flags.includes('waitingOnUserInput') || requests.some(function awaitsNativeInput(request) { return request.kind === 'input'; })) {
+            state = 'needs-input';
+        } else if (flags.includes('waitingOnApproval') || requests.some(function awaitsNativeApproval(request) { return request.kind === 'approval'; })) {
+            state = 'needs-approval';
+        } else if (nativeStatus?.type === 'active') state = 'working';
+        else if (nativeStatus?.type === 'idle') state = 'idle';
+        else if (nativeStatus?.type === 'systemError') state = 'error';
+    }
+    return {
+        origin, availability, state, message: text(observation.message, 'message'), observedAt,
+        coverage: {
+            scope: 'connected-server', live: availability === 'observed' && coverage.live,
+            reason: optionalText(coverage.reason ?? null, 'coverage.reason')
+        }
+    };
+}
+
+function sameNativeActivity(left, right) {
+    return left && sameNativeOrigin(left.origin, right.origin)
+        && left.availability === right.availability && left.state === right.state
+        && left.message === right.message && left.observedAt === right.observedAt
+        && left.coverage?.scope === right.coverage.scope
+        && left.coverage?.live === right.coverage.live
+        && left.coverage?.reason === right.coverage.reason;
+}
+
+/** Save a narrow PM observation for one existing, exactly associated task. */
+export async function applyNativeTaskObservation(id, observation, {isCurrent, signal} = {}) {
+    const activity = projectNativeActivity(observation);
+    if (typeof isCurrent !== 'function') {
+        throw dataError('PM_DATA_INPUT', 'Native activity requires its current observer predicate.');
+    }
+    checkCancellation(signal);
+    return editRecord('task', id, async function saveNativeTaskObservation() {
+        checkCancellation(signal);
+        const db = await getStorage();
+        const record = readStoredRecord(await db.get(tables.task, fileName(id), true), 'task', id);
+        checkCancellation(signal);
+        if (record === null) return {applied: false, reason: 'task-missing', task: null};
+        if (!sameNativeOrigin(record.origin, activity.origin)) {
+            return {applied: false, reason: 'origin-mismatch', task: record};
+        }
+        const current = isCurrent();
+        if (current && typeof current.then === 'function') {
+            Promise.resolve(current).catch(function observeUnsupportedAsyncActivityPredicate(error) {
+                console.error('The asynchronous activity predicate rejected after returning unsupported input.', error);
+            });
+        }
+        if (typeof current !== 'boolean') {
+            throw dataError('PM_DATA_INPUT', 'The activity predicate must return a boolean synchronously.');
+        }
+        if (!current) return {applied: false, reason: 'observation-stale', task: record};
+        const previous = sameNativeOrigin(record.nativeActivity?.origin, activity.origin) ? record.nativeActivity : null;
+        if (previous && Date.parse(previous.observedAt) > Date.parse(activity.observedAt)) {
+            return {applied: false, reason: 'older-observation', task: record};
+        }
+        if (sameNativeActivity(previous, activity)) {
+            return {applied: false, reason: 'unchanged', task: record};
+        }
+        const lastObserved = previous?.lastObserved;
+        activity.lastObserved = activity.availability === 'observed' && activity.state !== 'unknown'
+            ? {state: activity.state, message: activity.message, observedAt: activity.observedAt}
+            : lastObserved ? {state: lastObserved.state, message: lastObserved.message, observedAt: lastObserved.observedAt} : null;
+        checkCancellation(signal);
+        record.nativeActivity = activity;
+        record.updatedAt = new Date().toISOString();
+        await db.set(tables.task, fileName(id), record);
+        publishChange('task', 'updated', id, record);
+        return {applied: true, reason: 'observed', task: structuredClone(record)};
+    });
+}
+
 export function subscribe(handler, options = {}) {
     if (typeof handler !== 'function') throw dataError('PM_DATA_INPUT', 'subscribe requires a handler.');
     return arcaneEvents.subscribe(DATA_CHANGED_EVENT, function forwardPMRecordChange(occurrence) {
@@ -417,7 +550,8 @@ export const pmData = {
     getStorage, createProject, getProject, updateProject, listProjects,
     archiveProject, restoreProject, removeProjectRecord,
     createTask, getTask, updateTask, listTasks, archiveTask, restoreTask,
-    removeTaskRecord, setTaskFace, setTaskFaceIfEmpty, subscribe
+    removeTaskRecord, setTaskFace, setTaskFaceIfEmpty,
+    listNativeTaskAssociations, applyNativeTaskObservation, subscribe
 };
 
 export default pmData;
