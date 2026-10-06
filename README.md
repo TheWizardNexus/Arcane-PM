@@ -73,9 +73,10 @@ The Windows application exposes the SDK's app-scoped control endpoint at
 `connectAppControl` from `arcane-os/core/app-control` for status, document
 inspection, viewport capture, and targeted DOM actions. Use the document
 generation returned by inspection for each action and inspect its actual
-result. The connection preserves the application's existing Core, origin,
+result. Use the returned `shadowPath` to inspect or act within an open component
+shadow root, including the shared appearance control. The connection preserves the application's existing Core, origin,
 profile, and window; closing the controller leaves the application running.
-See the [published app-control API](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.82.0/docs/reference/native-app-control.md).
+See the [published app-control API](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.83.0/docs/reference/native-app-control.md).
 
 ## Explore the designs
 
