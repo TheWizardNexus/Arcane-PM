@@ -26,7 +26,7 @@ SSE stream, service-event subscription or readiness claim. Failed delivery exits
 There is no automatic retry. An interrupted command can have an unknown result.
 
 For a native app whose selected launch context enables the published SDK's
-`sharedHost`, prepare its separate artifact with:
+`coreListener` or explicit `sharedHost`, prepare its separate artifact with:
 
 ```powershell
 node bridge/codex-hooks/prepare.mjs --native "<native-launch-directory>"
@@ -46,16 +46,22 @@ root, selected arguments and working directory. It includes the descriptor's
 ID and launch defaults only when `native.launchContext` exists, matching the
 packaged Core entry. The SDK's public `readCoreLaunchContext` reads the same explicit
 launch file at preparation and delivery. Preparation reports an unavailable
-native selection before writing when that context has no shared endpoint; it
-does not enable shared mode or alter the descriptor. The selected native
-build must use these same launch defaults and locations. Reprepare after
+native selection before writing when that context has no selected endpoint or
+selects both listener and shared-host modes; it does not alter the descriptor.
+The selected native build must use these same launch defaults and locations. Reprepare after
 changing them.
 
 The native relay calls `connectSharedCoreHost` with the selected endpoint and
 no startup command, sends the unchanged original to `pm.codexHooks.accept`,
-and awaits only its client's close. Foundation owns host startup, lifetime and
-shutdown. The relay never creates a second Core, shuts down the app, or falls
-back to the development receiver. Invocation and close failures remain in
+and awaits only its client's close. With SDK 0.84.0 or later,
+`native.launchContext.coreListener:{endpoint}` attaches to the ordinary
+window-owned Core. The endpoint is explicit; Foundation retains the existing
+stdio/window lifetime, services, profile and state location. Closing the window
+still drains that Core. An explicitly selected `sharedHost` keeps its separate
+headless lifetime. These two modes cannot be selected together.
+Foundation owns host startup, lifetime and shutdown. The relay never creates a
+second Core, shuts down the app, or falls back to the development receiver.
+Invocation and close failures remain in
 complete diagnostics. SDK runtime replay describes that Core's lifecycle; it
 does not supply historical hooks or Codex Desktop current task state.
 
@@ -87,5 +93,5 @@ selected origin emits an event and PM reads its complete stored original.
 
 References: [Codex hooks](https://learn.chatgpt.com/docs/hooks),
 [plugin packaging and local activation](https://developers.openai.com/plugins/build/plugins),
-[SDK shared Core host](https://github.com/TheWizardNexus/arcane-os-sdk/blob/main/docs/reference/core-shared-host.md),
+[SDK existing-runtime listener](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.84.0/docs/reference/core-shared-host.md#attach-to-an-existing-window-owned-core),
 [SDK custom Core client](https://github.com/TheWizardNexus/arcane-os-sdk/blob/049ef8a77fa0ac398987b841de29fa5e4162e08e/docs/reference/core-client.md#native-connection-and-explicit-adapters).

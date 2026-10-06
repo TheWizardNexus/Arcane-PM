@@ -24,8 +24,12 @@ if (native) {
     }
     process.chdir(workingDirectory);
     const context = await readCoreLaunchContext(selection);
-    if (!context.sharedHost?.endpoint) {
-        throw new Error('Select a shared Core endpoint in the native application launch context before preparing its hook relay.');
+    if (context.coreListener !== undefined && context.sharedHost !== undefined) {
+        throw new TypeError('Select either coreListener or sharedHost in the native application launch context.');
+    }
+    const endpoint = context.coreListener !== undefined ? context.coreListener?.endpoint : context.sharedHost?.endpoint;
+    if (!endpoint) {
+        throw new Error('Select a Core listener or shared host endpoint in the native application launch context before preparing its hook relay.');
     }
     configuration = {applicationRoot, native: selection};
 } else {

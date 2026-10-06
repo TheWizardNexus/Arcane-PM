@@ -197,7 +197,10 @@ portable relay artifact using the installed public SDK Core client extension.
 Its existing positional URL selects the development receiver. Explicit
 `--native` preparation uses the same application launch context and the public
 `arcane-os/core/host` connect-only client, with a separate output artifact.
-The application must select `sharedHost`; the relay neither starts nor shuts
+The application selects the published SDK 0.84.0 `coreListener` with an explicit
+endpoint to use its existing window-owned Core, or explicitly selects
+`sharedHost` for its independent headless lifetime. Selecting both conflicts
+with the native host's lifecycle contract. The relay neither starts nor shuts
 down its Core and never guesses another receiver. It preserves the selected
 launch working directory for relative locations and awaits the actual receipt
 acknowledgment followed by its own client closure.

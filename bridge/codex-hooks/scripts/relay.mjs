@@ -28,13 +28,17 @@ async function deliverNative(original, selection, resolveFromApplication) {
     // from their selected directory, independent of the originating task cwd.
     process.chdir(selection.workingDirectory);
     const context = await readCoreLaunchContext(selection);
-    if (!context.sharedHost?.endpoint) {
-        throw new Error('The selected native application launch context has no shared Core endpoint.');
+    if (context.coreListener !== undefined && context.sharedHost !== undefined) {
+        throw new TypeError('Select either coreListener or sharedHost in the native application launch context.');
+    }
+    const endpoint = context.coreListener !== undefined ? context.coreListener?.endpoint : context.sharedHost?.endpoint;
+    if (!endpoint) {
+        throw new Error('The selected native application launch context has no Core listener or shared host endpoint.');
     }
     const failures = [];
     // Connect only. The native application owns host startup and shutdown.
     const connection = await connectSharedCoreHost({
-        endpoint: context.sharedHost.endpoint,
+        endpoint,
         onError: function observeNativeTransportFailure(error) { failures.push(error); }
     });
     try {
