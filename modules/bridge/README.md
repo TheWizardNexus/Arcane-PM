@@ -25,7 +25,9 @@ a transport or probe a local port. Native composition supplies
 `bridge/codex-service.mjs` to the SDK Core runtime. The default export is the
 synchronous `createCodexService(options)`
 factory. Its `command`, `args` and `cwd` options select the owned Codex process.
-An explicit command remains unchanged. Without one, `codex-command.mjs` locates
+An explicit command remains unchanged. Relative PATH and `CODEX_INSTALL_DIR`
+entries resolve against the selected process working directory. Without an
+explicit command, `codex-command.mjs` locates
 the installed executable through PATH, the documented standalone installer
 destination, the macOS Codex application bundle, or the current user's Windows
 `OpenAI.Codex` package registration. Windows discovery uses the operating system's
@@ -177,6 +179,11 @@ the complete original and separate receipt metadata before returning
 `status:'received'`. Accepted work drains at the Core owner. Startup reads only
 its project-owned receipt catalog and reports missing originals or metadata
 without deleting them. `status` and `read` are request-lifetime operations.
+Native receipts default to `bridge/hook-events` under the launch context's
+`stateRoot`, so replacing an extracted application build preserves them. Without
+that context, source development retains `output/bridge/hook-events` under
+`appRoot`. An explicit `storageDirectory` keeps its existing resolution against
+`appRoot`. This selection does not move, rewrite or delete existing receipts.
 
 Each receipt has a real event ID, receipt time and host, separate from optional
 source `hookEventName`, `sessionId`, `agentId`, `turnId` and `cwd`. Source time,

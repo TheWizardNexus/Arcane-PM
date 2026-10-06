@@ -5,8 +5,10 @@ import {randomUUID} from 'node:crypto';
 import {CoreError, serializeCoreError} from 'arcane-os/core/contracts';
 
 /** Hook receipts are retained evidence, separate from current Codex task state. */
-export function createCodexHooksService(options = {}, {appRoot = process.cwd()} = {}) {
-    const storageDirectory = resolve(appRoot, options.storageDirectory ?? 'output/bridge/hook-events');
+export function createCodexHooksService(options = {}, {appRoot = process.cwd(), stateRoot} = {}) {
+    const storageDirectory = options.storageDirectory == null && stateRoot
+        ? resolve(stateRoot, 'bridge/hook-events')
+        : resolve(appRoot, options.storageDirectory ?? 'output/bridge/hook-events');
     const hostId = hostname();
     const records = new Map();
     const diagnostics = [];

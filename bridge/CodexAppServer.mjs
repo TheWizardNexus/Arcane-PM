@@ -164,7 +164,7 @@ export class CodexAppServer {
         try {
             const discovery = new AbortController();
             this.commandDiscovery = discovery;
-            const command = await resolveCodexCommand(this.command, {signal: discovery.signal});
+            const command = await resolveCodexCommand(this.command, {signal: discovery.signal, cwd: this.cwd});
             if (this.commandDiscovery === discovery) this.commandDiscovery = null;
             if (!this.connectionWanted) return this.current();
             child = spawn(command, this.args, {

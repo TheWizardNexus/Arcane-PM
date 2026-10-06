@@ -2,26 +2,27 @@ import {spawn} from 'node:child_process';
 import {access, stat} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {homedir} from 'node:os';
-import {delimiter, join} from 'node:path';
+import {delimiter, join, resolve} from 'node:path';
 import {CoreError, serializeCoreError} from 'arcane-os/core/contracts';
 
 /** Locate the user's installed Codex without installing or updating it. */
-export async function resolveCodexCommand(command, {signal} = {}) {
+export async function resolveCodexCommand(command, {signal, cwd} = {}) {
     signal?.throwIfAborted();
     if (command !== undefined) return command;
     const windows = process.platform === 'win32';
     const executable = windows ? 'codex.exe' : 'codex';
+    const launchDirectory = resolve(cwd ?? process.cwd());
     const candidates = [];
     const accessErrors = [];
     for (const directory of (process.env.PATH || '').split(delimiter)) {
         if (!directory) continue;
         const path = directory.startsWith('"') && directory.endsWith('"')
             ? directory.substring(1, directory.length - 1) : directory;
-        candidates.push(join(path, executable));
+        candidates.push(resolve(launchDirectory, path, executable));
     }
     // These are the documented standalone installer destinations. A GUI
     // application's inherited PATH can predate the user's CLI installation.
-    if (process.env.CODEX_INSTALL_DIR) candidates.push(join(process.env.CODEX_INSTALL_DIR, executable));
+    if (process.env.CODEX_INSTALL_DIR) candidates.push(resolve(launchDirectory, process.env.CODEX_INSTALL_DIR, executable));
     if (windows && process.env.LOCALAPPDATA) {
         candidates.push(join(process.env.LOCALAPPDATA, 'Programs', 'OpenAI', 'Codex', 'bin', executable));
     } else if (!windows) {
