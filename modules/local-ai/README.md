@@ -98,7 +98,7 @@ speech artifact store. Construction and selection of a language model do not
 start speech preparation or audio playback.
 
 - `current()` and replaying `subscribe(listener, {signal})` expose actual
-  lifecycle state, readiness, progress, the provider's voice catalog, errors
+  lifecycle state, readiness, progress, the app-supplied voice catalog, errors
   and execution metadata.
 - `load({signal})` explicitly prepares the local voice and reuses saved SDK
   resources. Its complete upstream resource closure can require acquisition;
@@ -114,6 +114,9 @@ Playback is a separate explicit UI action through the shared SDK playback
 owner. The app's text-provider transitions cannot unload this independent
 speech provider. Source composition and catalog presence do not establish a
 successful local synthesis or playback on an unobserved host.
+The declared voice is Heart (`af_heart`, `en-US`). The SDK preserves this
+display record in its synchronous catalog; loading does not discover a larger
+voice inventory.
 
 The preparation view reads its task list once on mount or explicit refresh.
 Committed Data events update the supplied complete row in its keyed task list
@@ -417,8 +420,8 @@ An earlier API inventory omitted the published browser typed-decision pipeline.
 evaluation. Preserve that existing capability when describing local decision
 support. Generic ONNX tensor sessions, browser typed decisions, conversational
 text/tool requests and remote Jev/System One are separate public contracts.
-Local Jev chat, agent behavior and native FP32 execution have not been
-established by this PM review.
+PM's selected local JEV models are Laya FP16 and Julia 1 FP32. Typed decisions
+score supplied choices; conversational preparation uses the language model.
 
 Optional DigitalOcean serverless inference uses the published `TWIN` provider's
 endpoint, model and access-key settings. Its explicit selection meets the
@@ -439,7 +442,7 @@ Ordinary task browsing, local text search and manual preparation remain usable
 without Core or loaded models. Source integration is distinct from actual
 native inference and provider availability on an individual device.
 
-## Native next-step comparison
+## Local next-step comparison
 
 `services.decisions` is the app-owned
 `createPMDecisionController({modelServices, signal, client})`. Its explicit
@@ -448,24 +451,37 @@ It scores complete caller-supplied alternatives; it does not generate a
 conversation, choose tools for user messages, or change task status.
 
 - `current()` and replaying `subscribe(listener, {signal})` expose operation,
-  model and loading state without retaining comparison inputs or results.
-- `load({offline = true, signal})` prepares Laya's FP32 model and tokenizer
-  through the existing SDK model store and temporary native projection owner.
-  The view's explicit Load action permits acquisition of missing resources.
-  Once accepted, loading belongs to the app and continues across page navigation.
+  model, selection, available choices and loading state without retaining
+  comparison inputs or results.
+- `choices()` returns Laya FP16 (`laya-fp16`, the initial selection), Julia 1
+  FP32 (`julia1-fp32`) and the preserved native Laya FP32
+  (`laya-native-fp32`). `select(choiceId, {signal})` cancels and joins work on
+  the previous selected model, releases its owned activation and changes the
+  selection without downloading. Accepted selection cleanup belongs to the app.
+- `load({signal})` prepares the selected browser model through the published
+  SDK decision client and the existing shared DBOPFS model store. Actual SDK
+  progress passes through `current().load.progress` and model status unchanged.
+  The browser API uses normal upstream acquisition and saved resources; an
+  explicit `offline: true` request reports its missing cached-only capability.
+  Native Laya retains `load({offline = true, signal})` through the model store
+  and temporary native projection owner. The view's Load action supplies
+  `offline: false` to permit resource acquisition. Loading remains app-owned
+  across page navigation.
 - `evaluate({taskId, rows, runOptions, signal, onDiagnostic})` publishes `Thinking`
   synchronously, waits for this exact selected model to be ready and loaded,
-  and forwards complete rows unchanged. It observes Core and model lifecycle
-  until the result commits. The returned `{decisions, outputs}` is the complete
-  native RPC result; the SDK owns its tensor transport encoding.
+  and forwards complete rows unchanged. It observes the selected model's
+  lifecycle until the result commits, including Core for the native route.
+  The returned `{decisions, outputs}` is the complete SDK result. Native
+  `runOptions` remain supported on the native route; browser selection reports
+  that unsupported option instead of discarding it.
 - `cancel()` cancels the one active comparison. Cancellation during inference
-  follows the native SDK's activation-wide cancellation. Cancelling a readiness
+  follows the selected SDK client's activation-wide cancellation. Cancelling a readiness
   wait leaves an independent model load running.
-- `unload({signal})` and `dispose()` join native cleanup and pending work.
+- `unload({signal})` and `dispose()` join selected-model cleanup and pending work.
   A supplied Core client remains fixed; otherwise the controller follows the
   published Core installation owner and cancels work when its client retires.
 
-PM selects `onnx-community/laya-typed-decisions-ONNX`, revision `main`, dtype
+The optional native route selects `onnx-community/laya-typed-decisions-ONNX`, revision `main`, dtype
 `fp32`, using the published members `onnx/model.onnx`, adjacent
 `onnx/model.onnx_data`, `tokenizer.json` and `tokenizer_config.json`. The SDK
 stores the complete assets in the shared DBOPFS model cache under single filenames
@@ -499,22 +515,17 @@ and [model assets](https://thewizardnexus.github.io/arcane-os-sdk/reference/mode
 This increment provides an explicit local comparison. The broader local
 conversation and agent outcomes retain their separate acceptance boundaries.
 
-## Historical browser decision capability review
+## Published browser decision contract
 
-The following records the earlier `0.64.0` browser API review. PM now composes
-the native comparison above; it does not use this browser backend. No decision
-runtime or model was loaded during that earlier review.
-
-The governing PM outcome remains offline local Jev/local LLM preparation with
-application model assets in DBOPFS. This browser API's upstream cache does not
-establish that offline storage contract, so its existence does not complete
-the outcome. The subsequent native increment uses the published FP32 path and
-the shared DBOPFS model owner. No browser backend redesign, optional
-runtime/model download or new dependency was selected by this mapping.
+PM composes the published `0.79.1` browser decision client with the same
+DBOPFS model store returned by `modelServices.getModelStore()`. The SDK owns
+model/runtime resource acquisition and inference. A chosen browser backend
+does not depend on native Core readiness. Selection and construction start no
+worker or download; the explicit load action prepares the model.
 
 The published entry point is
 `import {createBrowserDecisionModel} from 'arcane-os/ai/browser-decisions'`.
-Construction accepts `{family, model, revision, device, runtime}`. The
+Construction accepts `{family, model, revision, device, dtype, store, runtime}`. The
 documented selections are `family: 'laya'` with
 `model: 'onnx-community/laya-typed-decisions-ONNX'` (FP16), or
 `family: 'julia'` with `model: 'SupersonicLabs/Julia-1-ONNX'` (FP32).
@@ -525,7 +536,7 @@ selection, not an established native Core integration or execution result.
 
 | PM operation | Applicable contract and current boundary |
 | --- | --- |
-| Evaluate explicit next-step choices against complete task state | Browser `evaluate(rows, {signal})` can score caller-owned choices. Each row supplies complete `state`, `question`, `options` and optional `type`. PM's implemented comparison instead uses the native controller documented above. |
+| Evaluate explicit next-step choices against complete task state | Browser `evaluate(rows, {signal})` scores caller-owned choices. Each row supplies complete `state`, `question`, `options` and optional `type`. PM routes to the explicitly selected browser or native client. |
 | Draft a preparation note or make model-selected tool calls | Existing `localAI.prepare` uses the text request owner. Typed decisions score supplied options and do not generate chat text or emitted tool calls. |
 | Evaluate state/questions through remote Jev/System One | `fetchSystemOneRequest` from `arcane-os/ai/twin-cloud` uses explicit `twinKey`, `model`, `state` and `questions` at the remote DigitalOcean endpoint. Its result is parsed JSON; it is not a local fallback. |
 
@@ -553,9 +564,10 @@ busy, activeRequests, progress, error}`. `subscribe(listener,
 `unloaded`, `loading`, `ready`, `error` and `disposed`; `loaded` follows
 the SDK's successful ready state. An explicit `load({signal})` prepares the
 activation. `evaluate(rows, {signal})` also starts that activation on first
-use and waits for it before sending rows for inference. A future PM operation
-must publish its visible `Thinking` state synchronously and observe this exact
-client's model/lifecycle without delaying the application shell.
+use and waits for it before sending rows for inference. PM publishes visible
+`Thinking` synchronously and waits for explicit selected-model readiness before
+calling evaluate. Its lifecycle observer remains active through the response;
+the application shell continues independently.
 
 Abort, `unload()` or `dispose()` terminates that client's dedicated Worker and
 rejects every outstanding operation on it. Cancellation is client-wide;
@@ -564,23 +576,21 @@ reactivation; disposal is terminal. Concurrent operations share activation,
 while the selected backend owns execution ordering. A replaced activation
 ignores old Worker replies. Technical errors remain in developer diagnostics.
 
-Import and construction start no Worker or download. Explicit `load` or
-`evaluate` uses the upstream runtime, tokenizer and weights with normal browser
-loading/caching. The default runtime is Transformers.js `4.3.0` at its published
+Import and construction start no Worker or download. Explicit `load` uses
+the upstream runtime, tokenizer and weights through the supplied shared store.
+The default runtime is Transformers.js `4.3.0` at its published
 CDN module. This API does not expose the cached-only `offline: true` option
 used by PM's browser text model store; existing cache alone is not an offline
-availability guarantee. No additional model/runtime download or execution was
-selected here.
+availability guarantee.
 
-This mapping is based on the installed published `0.64.0` documentation and
-client source, following the SDK coordinator's inventory correction. No PM
-model loading, browser FP16/FP32 inference, numerical parity, native execution,
-or model cancellation was run. The SDK coordinator also reports no additional
-actual Laya/Julia browser, native or PM execution evidence. Static lifecycle
-source review does not establish those execution outcomes.
+This integration was reviewed against the installed published `0.79.1`
+documentation and client source. The earlier `0.64.0` review established the
+API inventory only. This source increment ran no model loading, browser
+FP16/FP32 inference, numerical parity or model cancellation. Source integration
+and those execution outcomes remain separate evidence boundaries.
 
-Public references: [browser typed decisions](https://cdn.jsdelivr.net/npm/arcane-os@0.64.0/docs/reference/ai/browser-decisions.md),
-[published decision client](https://cdn.jsdelivr.net/npm/arcane-os@0.64.0/browser-runtime/ai/browser-decisions.mjs),
+Public references: [browser typed decisions](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.79.1/docs/reference/ai/browser-decisions.md),
+[published decision client](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.79.1/browser-runtime/ai/browser-decisions.mjs),
 and [remote System One](https://cdn.jsdelivr.net/npm/arcane-os@0.64.0/docs/reference/ai/twin-cloud.md#evaluate-caller-owned-state-with-system-one).
 
 ## Ownership and work cardinality

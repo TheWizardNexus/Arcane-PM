@@ -163,7 +163,8 @@ export function createPMSpeechController({getStorage, signal} = {}) {
                                 repository: MODEL_ID,
                                 revision: '1939ad2a8e416c0acfeecc08a694d14ef25f2231',
                                 dtype: 'fp32',
-                                defaultVoice: DEFAULT_VOICE
+                                defaultVoice: DEFAULT_VOICE,
+                                voices: [{id: DEFAULT_VOICE, name: 'Heart', lang: 'en-US'}]
                             },
                             runtime: {
                                 adapter: 'kokoro-js',

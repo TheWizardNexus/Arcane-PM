@@ -1,5 +1,21 @@
 import {createArcaneEventSource} from 'arcane-os/event-manager';
 import {subscribeCoreClient} from 'arcane-os/core/client';
+import {createBrowserDecisionModel} from 'arcane-os/ai/browser-decisions';
+
+const DECISION_CHOICES = [
+    {
+        id: 'laya-fp16', name: 'Laya · FP16', kind: 'browser', family: 'laya',
+        model: 'onnx-community/laya-typed-decisions-ONNX', revision: 'main', dtype: 'fp16', device: 'webgpu'
+    },
+    {
+        id: 'julia1-fp32', name: 'Julia 1 · FP32', kind: 'browser', family: 'julia',
+        model: 'SupersonicLabs/Julia-1-ONNX', revision: 'main', dtype: 'fp32', device: 'webgpu'
+    },
+    {
+        id: 'laya-native-fp32', name: 'Laya · native FP32', kind: 'native', family: 'laya',
+        model: 'onnx-community/laya-typed-decisions-ONNX', revision: 'main', dtype: 'fp32'
+    }
+];
 
 const LAYA_SOURCE = {
     id: 'onnx-community/laya-typed-decisions-ONNX',
@@ -21,7 +37,7 @@ function report(error) {
     console.error('Arcane PM local decision operation failed.', error);
 }
 
-/** PM selects Laya and owns preparation; the SDK owns inference and transport. */
+/** PM selects the decision model; the SDK owns inference and transport. */
 export function createPMDecisionController({modelServices, signal, client} = {}) {
     const lifetime = new AbortController();
     const lifetimeSignal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
@@ -29,6 +45,11 @@ export function createPMDecisionController({modelServices, signal, client} = {})
         source: 'arcane-pm.decisions', eventTypes: ['arcane-pm.decisions.changed']
     });
     let binding = null;
+    let availableCoreClient = null;
+    let selectedChoice = DECISION_CHOICES[0];
+    let selecting = null;
+    let browserModel = null;
+    let stopBrowser = null;
     let stopInstallation = null;
     let model = null;
     let discoveryError = null;
@@ -45,10 +66,22 @@ export function createPMDecisionController({modelServices, signal, client} = {})
     };
 
     function current() {
+        const selectedModel = selectedChoice.kind === 'browser'
+            ? browserModel?.status() ?? {
+                family: selectedChoice.family, model: selectedChoice.model, revision: selectedChoice.revision,
+                dtype: selectedChoice.dtype, device: selectedChoice.device, state: closed ? 'disposed' : 'unloaded',
+                loaded: false, busy: false, progress: null, error: null
+            } : model;
         return {
-            ...state, model, load: {...loadState},
-            available: Boolean(binding) && !discoveryError && !closed, closed
+            ...state, model: selectedModel,
+            load: releasing ? {...loadState, status: 'unloading', busy: true} : {...loadState}, choices: choices(),
+            selection: {...selectedChoice}, selecting: Boolean(selecting),
+            available: !closed && (selectedChoice.kind === 'browser' || Boolean(binding) && !discoveryError), closed
         };
+    }
+
+    function choices() {
+        return DECISION_CHOICES.map(function decisionChoice(choice) { return {...choice}; });
     }
 
     function publish(changes) {
@@ -76,9 +109,9 @@ export function createPMDecisionController({modelServices, signal, client} = {})
         return binding;
     }
 
-    function matchesSelection(snapshot) {
-        return snapshot?.family === 'laya' && snapshot.model === LAYA_SOURCE.id
-            && snapshot.revision === 'main' && snapshot.dtype === 'fp32';
+    function matchesSelection(snapshot, choice = selectedChoice) {
+        return snapshot?.family === choice.family && snapshot.model === choice.model
+            && snapshot.revision === choice.revision && snapshot.dtype === choice.dtype;
     }
 
     function ready(snapshot) {
@@ -94,6 +127,8 @@ export function createPMDecisionController({modelServices, signal, client} = {})
     }
 
     function acceptCore({client: nextClient, error = null}) {
+        availableCoreClient = nextClient;
+        if (selectedChoice.kind !== 'native') return;
         if (closed || binding?.client === nextClient) return;
         const previous = binding;
         previous?.controller.abort(error ?? new DOMException('The Arcane Core connection changed.', 'AbortError'));
@@ -142,7 +177,81 @@ export function createPMDecisionController({modelServices, signal, client} = {})
         return snapshot;
     }
 
-    function load({offline = true, signal: requestSignal} = {}) {
+    function load(options = {}) {
+        assertOpen();
+        if (selecting) throw decisionError('PM_DECISION_SELECTING', 'The decision model is changing.');
+        return selectedChoice.kind === 'browser' ? loadBrowser(options) : loadNative(options);
+    }
+
+    function loadBrowser({offline = false, signal: requestSignal} = {}) {
+        requestSignal?.throwIfAborted();
+        if (offline) throw decisionError('PM_DECISION_OFFLINE_UNAVAILABLE', 'This decision provider uses its normal resource cache and does not offer a cached-only load.');
+        if (loading || releasing) throw decisionError('PM_DECISION_LOADING', 'The decision model is already changing.');
+        if (ready(browserModel?.status())) return Promise.resolve(browserModel.status());
+        const choice = selectedChoice;
+        const controller = new AbortController();
+        const operation = {
+            controller, signal: AbortSignal.any([lifetimeSignal, controller.signal, ...(requestSignal ? [requestSignal] : [])]),
+            task: null
+        };
+        loading = operation;
+        loadState = {status: 'preparing', busy: true, progress: null, error: null};
+        operation.task = Promise.resolve().then(async function prepareBrowserModel() {
+            try {
+                operation.signal.throwIfAborted();
+                if (!browserModel) {
+                    const store = await new Promise(function observeModelStore(resolve, reject) {
+                        function cancelled() { reject(operation.signal.reason); }
+                        operation.signal.addEventListener('abort', cancelled, {once: true});
+                        Promise.resolve(modelServices.getModelStore()).then(function stored(value) {
+                            operation.signal.removeEventListener('abort', cancelled);
+                            resolve(value);
+                        }, function storageFailed(error) {
+                            operation.signal.removeEventListener('abort', cancelled);
+                            reject(error);
+                        });
+                        if (operation.signal.aborted) cancelled();
+                    });
+                    operation.signal.throwIfAborted();
+                    const selected = createBrowserDecisionModel({
+                        family: choice.family, model: choice.model, revision: choice.revision,
+                        dtype: choice.dtype, device: choice.device, store
+                    });
+                    browserModel = selected;
+                    stopBrowser = selected.subscribe(function browserState(snapshot) {
+                        if (closed || selected !== browserModel || choice !== selectedChoice) return;
+                        if (loading) loadState = {...loadState, progress: snapshot.progress};
+                        publish();
+                    }, {emitCurrent: true, signal: lifetimeSignal});
+                }
+                loadState = {...loadState, status: 'loading'};
+                publish();
+                await browserModel.load({signal: operation.signal});
+                operation.signal.throwIfAborted();
+                const result = browserModel.status();
+                if (!ready(result)) throw decisionError('PM_DECISION_NOT_READY', 'The selected decision model did not become ready.');
+                loadState = {status: 'ready', busy: false, progress: null, error: null};
+                return result;
+            } catch (error) {
+                const cancelled = operation.signal.aborted && error?.name === 'AbortError';
+                loadState = {
+                    status: cancelled ? 'cancelled' : 'error', busy: false,
+                    progress: null, error: cancelled ? null : error
+                };
+                throw error;
+            } finally {
+                if (loading === operation) loading = null;
+                publish();
+            }
+        });
+        operation.task.catch(function browserLoadFailed(error) {
+            if (!operation.signal.aborted || error?.name !== 'AbortError') report(error);
+        });
+        publish();
+        return operation.task;
+    }
+
+    function loadNative({offline = true, signal: requestSignal} = {}) {
         const selected = requireBinding();
         if (loading || releasing) throw decisionError('PM_DECISION_LOADING', 'The decision model is already changing.');
         requestSignal?.throwIfAborted();
@@ -203,7 +312,7 @@ export function createPMDecisionController({modelServices, signal, client} = {})
                 if (!failure && operation.signal.aborted) failure = operation.signal.reason;
                 loading = null;
                 loadState = {
-                    status: failure ? operation.signal.aborted ? 'cancelled' : 'error' : 'ready',
+                    status: failure ? operation.signal.aborted && failure?.name === 'AbortError' ? 'cancelled' : 'error' : 'ready',
                     busy: false, progress: null, error: failure ?? null
                 };
                 publish();
@@ -220,7 +329,90 @@ export function createPMDecisionController({modelServices, signal, client} = {})
 
     function cancel() { active?.controller.abort(); }
 
-    function unload({signal: requestSignal} = {}) {
+    function unload(options = {}) {
+        assertOpen();
+        if (selecting) throw decisionError('PM_DECISION_SELECTING', 'The decision model is changing.');
+        return selectedChoice.kind === 'browser' ? unloadBrowser(options) : unloadNative(options);
+    }
+
+    function unloadBrowser({signal: requestSignal} = {}) {
+        requestSignal?.throwIfAborted();
+        if (releasing) return releasing;
+        const selected = browserModel;
+        const acceptedLoad = loading;
+        const acceptedEvaluation = active;
+        acceptedLoad?.controller.abort();
+        acceptedEvaluation?.controller.abort();
+        releasing = Promise.resolve().then(async function releaseBrowserModel() {
+            const outcomes = await Promise.allSettled([
+                selected?.unload(), acceptedLoad?.task, acceptedEvaluation?.task
+            ]);
+            const failures = [];
+            for (const [index, outcome] of outcomes.entries()) {
+                if (outcome.status === 'rejected' && (index === 0 || outcome.reason?.name !== 'AbortError')) {
+                    failures.push(outcome.reason);
+                }
+            }
+            if (failures.length) throw new AggregateError(failures, 'Decision model cleanup could not finish.');
+            loadState = {status: 'idle', busy: false, progress: null, error: null};
+            publish();
+            return selected?.status() ?? current().model;
+        });
+        function released() { releasing = null; publish(); }
+        releasing.then(released, released);
+        releasing.catch(report);
+        publish();
+        return releasing;
+    }
+
+    function select(choiceId, {signal: requestSignal} = {}) {
+        assertOpen();
+        requestSignal?.throwIfAborted();
+        if (selecting) throw decisionError('PM_DECISION_SELECTING', 'The decision model is already changing.');
+        const nextChoice = DECISION_CHOICES.find(function namedChoice(choice) { return choice.id === choiceId; });
+        if (!nextChoice) throw decisionError('PM_DECISION_CHOICE_UNKNOWN', 'Choose an available local decision model.');
+        if (nextChoice === selectedChoice) return Promise.resolve(current());
+        // After acceptance the app owns this selection, including cleanup if the view detaches.
+        selecting = Promise.resolve().then(async function changeDecisionModel() {
+            // Finish owned activation cleanup before a different model can accept work.
+            if (selectedChoice.kind === 'browser') {
+                await unloadBrowser();
+                stopBrowser?.();
+                stopBrowser = null;
+                await browserModel?.dispose();
+                browserModel = null;
+            } else {
+                if (releasing) await releasing;
+                else if (binding && (binding.ownsActivation || loading)) await unloadNative();
+                else {
+                    const acceptedLoad = loading?.task;
+                    loading?.controller.abort();
+                    cancel();
+                    await Promise.allSettled([active?.task, acceptedLoad]);
+                }
+                binding?.controller.abort();
+                binding?.stopState();
+                binding = null;
+                model = null;
+            }
+            assertOpen();
+            selectedChoice = nextChoice;
+            discoveryError = null;
+            loadState = {status: 'idle', busy: false, progress: null, error: null};
+            if (selectedChoice.kind === 'native') acceptCore({client: availableCoreClient});
+            publish({status: 'idle', phase: 'idle', message: 'Load the selected decision model to compare next steps.', taskId: null, requestId: null});
+            return current();
+        });
+        function selectionFinished() { selecting = null; publish(); }
+        selecting.then(selectionFinished, selectionFinished);
+        selecting.catch(function selectionFailed(error) {
+            if (!closed && !requestSignal?.aborted) report(error);
+        });
+        publish();
+        return selecting;
+    }
+
+    function unloadNative({signal: requestSignal} = {}) {
         const selected = requireBinding();
         requestSignal?.throwIfAborted();
         if (releasing) return releasing;
@@ -254,9 +446,12 @@ export function createPMDecisionController({modelServices, signal, client} = {})
 
     function evaluate({taskId = null, rows, runOptions, signal: requestSignal, onDiagnostic} = {}) {
         assertOpen();
+        if (selecting) throw decisionError('PM_DECISION_SELECTING', 'The decision model is changing.');
+        if (releasing) throw decisionError('PM_DECISION_RELEASING', 'The decision model is unloading.');
         if (active) throw decisionError('PM_DECISION_BUSY', 'A next-step comparison is already running.');
         const controller = new AbortController();
         const selected = binding;
+        const choice = selectedChoice;
         const operation = {
             id: crypto.randomUUID(), controller, task: null, stopModel: null,
             signal: AbortSignal.any([lifetimeSignal, controller.signal, ...(selected ? [selected.signal] : []), ...(requestSignal ? [requestSignal] : [])])
@@ -265,15 +460,20 @@ export function createPMDecisionController({modelServices, signal, client} = {})
         operation.task = Promise.resolve().then(async function compareNextSteps() {
             try {
                 assertCurrent();
-                if (!selected) throw decisionError('PM_DECISION_CORE_UNAVAILABLE', 'Connect Arcane Core to compare next steps locally.');
+                if (choice.kind === 'native' && !selected) throw decisionError('PM_DECISION_CORE_UNAVAILABLE', 'Connect Arcane Core to compare next steps locally.');
+                if (choice.kind === 'browser' && runOptions !== undefined) {
+                    throw decisionError('PM_DECISION_OPTIONS_UNAVAILABLE', 'The selected browser decision API does not accept native execution options.');
+                }
                 await waitForModel();
                 assertCurrent();
                 publish({phase: 'evaluating', message: 'Thinking'});
                 diagnostic({type: 'request', rows, ...(runOptions === undefined ? {} : {runOptions})});
                 assertCurrent();
-                const result = await selected.client.invoke('pm.decisions.evaluate', {
-                    rows, ...(runOptions === undefined ? {} : {runOptions})
-                }, {signal: operation.signal, timeoutMs: 0});
+                const result = choice.kind === 'browser'
+                    ? await browserModel.evaluate(rows, {signal: operation.signal})
+                    : await selected.client.invoke('pm.decisions.evaluate', {
+                        rows, ...(runOptions === undefined ? {} : {runOptions})
+                    }, {signal: operation.signal, timeoutMs: 0});
                 assertCurrent();
                 diagnostic({type: 'response', response: result});
                 assertCurrent();
@@ -282,10 +482,11 @@ export function createPMDecisionController({modelServices, signal, client} = {})
                 return result;
             } catch (error) {
                 diagnostic({type: 'error', error});
+                const cancelled = operation.signal.aborted && error?.name === 'AbortError';
                 if (!closed && active === operation) publish({
-                    status: operation.signal.aborted ? 'cancelled' : 'error',
-                    phase: operation.signal.aborted ? 'cancelled' : 'error',
-                    message: operation.signal.aborted ? 'Next-step comparison cancelled.'
+                    status: cancelled ? 'cancelled' : 'error',
+                    phase: cancelled ? 'cancelled' : 'error',
+                    message: cancelled ? 'Next-step comparison cancelled.'
                         : 'The comparison could not finish. Your state, question and choices remain available.'
                 });
                 throw error;
@@ -304,7 +505,8 @@ export function createPMDecisionController({modelServices, signal, client} = {})
 
         function assertCurrent() {
             operation.signal.throwIfAborted();
-            if (closed || active !== operation || selected !== binding) throw new DOMException('The comparison was cancelled.', 'AbortError');
+            if (closed || active !== operation || choice !== selectedChoice
+                || (choice.kind === 'native' && selected !== binding)) throw new DOMException('The comparison was cancelled.', 'AbortError');
         }
 
         function diagnostic(value) {
@@ -323,7 +525,12 @@ export function createPMDecisionController({modelServices, signal, client} = {})
                 const stop = subscribe(function modelChanged(snapshot) {
                     if (operation.signal.aborted) return;
                     const selectedModel = snapshot.model;
-                    if (discoveryError) { reject(discoveryError); return; }
+                    if (choice.kind === 'native' && discoveryError) { reject(discoveryError); return; }
+                    if (snapshot.load.status === 'error') {
+                        if (started) controller.abort(snapshot.load.error);
+                        else reject(snapshot.load.error);
+                        return;
+                    }
                     if (!snapshot.available) { controller.abort(); return; }
                     if (!selectedModel) return;
                     if (selectedModel.state === 'error') {
@@ -352,10 +559,12 @@ export function createPMDecisionController({modelServices, signal, client} = {})
         lifetimeSignal.removeEventListener('abort', dispose);
         const selected = binding;
         const acceptedRelease = releasing;
-        const pending = [active?.task, loading?.task, acceptedRelease, selected?.discovery];
+        const pending = [active?.task, loading?.task, acceptedRelease, selecting, selected?.discovery];
         lifetime.abort();
         stopInstallation?.();
         selected?.stopState();
+        stopBrowser?.();
+        stopBrowser = null;
         closing = Promise.resolve().then(async function closeDecisions() {
             const failures = [];
             if (selected?.ownsActivation && !acceptedRelease) {
@@ -366,6 +575,9 @@ export function createPMDecisionController({modelServices, signal, client} = {})
             for (const outcome of outcomes) {
                 if (outcome.status === 'rejected' && outcome.reason?.name !== 'AbortError') failures.push(outcome.reason);
             }
+            try { await browserModel?.dispose(); }
+            catch (error) { failures.push(error); }
+            browserModel = null;
             model = null;
             binding = null;
             loadState = {status: 'idle', busy: false, progress: null, error: null};
@@ -382,5 +594,5 @@ export function createPMDecisionController({modelServices, signal, client} = {})
     else stopInstallation = subscribeCoreClient(acceptCore, {signal: lifetimeSignal, emitCurrent: true});
     lifetimeSignal.addEventListener('abort', dispose, {once: true});
     if (lifetimeSignal.aborted) dispose();
-    return {current, subscribe, load, unload, evaluate, cancel, dispose};
+    return {current, subscribe, choices, select, load, unload, evaluate, cancel, dispose};
 }
