@@ -1,0 +1,122 @@
+.pm-handoffs {
+    display: grid;
+    gap: var(--arcane-space-4);
+    min-width: 0;
+    color: var(--text-color);
+}
+
+.pm-handoff-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: start;
+    justify-content: space-between;
+    gap: var(--arcane-space-4);
+}
+
+.pm-handoff-heading h1,
+.pm-handoff-fields h2,
+.pm-handoff-review h2 {
+    margin-top: 0;
+}
+
+.pm-handoff-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--arcane-space-5);
+    min-width: 0;
+}
+
+.pm-handoff-fields,
+.pm-handoff-review,
+.pm-handoff-progress {
+    display: grid;
+    gap: var(--arcane-space-4);
+    min-width: 0;
+    padding: var(--arcane-space-5);
+}
+
+.pm-handoffs .arcane-field {
+    display: grid;
+    gap: var(--arcane-space-2);
+    min-width: 0;
+}
+
+.pm-handoffs textarea,
+.pm-handoffs select,
+.pm-handoffs input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: var(--arcane-space-3);
+    border: 1px solid var(--arcane-border);
+    border-radius: var(--arcane-radius-medium);
+    background: var(--arcane-surface);
+    color: inherit;
+    font: inherit;
+}
+
+.pm-handoffs textarea {
+    resize: vertical;
+}
+
+.pm-handoffs :is(textarea, select, input, summary, a):focus-visible {
+    outline: 2px solid var(--arcane-focus);
+    outline-offset: 3px;
+}
+
+.pm-handoff-task-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--arcane-space-4);
+}
+
+.pm-handoff-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--arcane-space-2);
+}
+
+.pm-handoff-status {
+    margin: 0;
+    color: var(--arcane-muted);
+}
+
+.pm-handoff-original {
+    min-width: 0;
+    padding-block: var(--arcane-space-3);
+    border-bottom: 1px solid var(--arcane-border);
+}
+
+.pm-handoff-original summary {
+    cursor: pointer;
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.pm-handoff-original pre,
+.pm-handoff-preserve-text,
+.pm-handoff-review p {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.pm-handoff-original pre {
+    font: inherit;
+}
+
+.pm-handoff-progress form {
+    display: grid;
+    gap: var(--arcane-space-3);
+}
+
+.pm-handoffs [hidden] {
+    display: none;
+}
+
+@media (max-width: 55rem) {
+    .pm-handoff-layout,
+    .pm-handoff-task-pair {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

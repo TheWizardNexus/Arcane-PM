@@ -1,0 +1,111 @@
+.pm-guide {
+    display: grid;
+    gap: var(--arcane-space-4);
+    min-width: 0;
+    color: var(--text-color);
+}
+
+.pm-guide-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--arcane-space-3);
+}
+
+.pm-guide-status {
+    margin: 0;
+    color: var(--arcane-muted);
+    overflow-wrap: anywhere;
+}
+
+.pm-guide-content,
+.pm-guide-task,
+.pm-guide-form,
+.pm-guide-history {
+    display: grid;
+    gap: var(--arcane-space-4);
+    min-width: 0;
+}
+
+.pm-guide-card {
+    display: grid;
+    align-content: start;
+    gap: var(--arcane-space-4);
+    padding: var(--arcane-space-4);
+}
+
+.pm-guide-card h3,
+.pm-guide-card h4,
+.pm-guide-history-entry h5 {
+    margin: 0;
+}
+
+.pm-guide-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    align-items: start;
+    gap: var(--arcane-space-4);
+}
+
+.pm-guide-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--arcane-space-2);
+}
+
+.pm-guide-form > .arcane-button {
+    justify-self: start;
+}
+
+.pm-guide-form textarea {
+    resize: vertical;
+}
+
+.pm-guide-current-attention,
+.pm-guide-attention,
+.pm-guide-history-entry {
+    display: grid;
+    gap: var(--arcane-space-3);
+    padding-block: var(--arcane-space-3);
+    border-top: 1px solid var(--arcane-border);
+    overflow-wrap: anywhere;
+}
+
+.pm-guide-current-attention {
+    padding: var(--arcane-space-3);
+    border-inline-start: 0.2rem solid var(--arcane-warning);
+    background: var(--arcane-surface-muted);
+}
+
+.pm-guide-verbatim {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.pm-guide-history-entry h5 {
+    font-size: 1rem;
+}
+
+.pm-guide-task-evidence > summary {
+    padding: var(--arcane-space-3);
+    border-radius: var(--arcane-radius-small);
+    cursor: pointer;
+}
+
+.pm-guide-task-evidence > summary:focus-visible {
+    outline: 3px solid var(--arcane-focus);
+    outline-offset: 2px;
+}
+
+.pm-guide .arcane-badge {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 36rem) {
+    .pm-guide-form > .arcane-button {
+        justify-self: stretch;
+    }
+}

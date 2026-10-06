@@ -1,0 +1,72 @@
+.pm-cleanup {
+    display: grid;
+    gap: var(--arcane-space-4);
+    min-width: 0;
+    color: var(--text-color);
+}
+
+.pm-cleanup-tabs,
+.pm-cleanup-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--arcane-space-2);
+}
+
+.pm-cleanup-tabs [aria-pressed="true"] {
+    border-color: var(--arcane-action);
+    color: var(--arcane-action);
+}
+
+.pm-cleanup-status {
+    flex: 1;
+    min-width: min(100%, 16rem);
+    margin: 0;
+    color: var(--arcane-muted);
+}
+
+.pm-cleanup-content {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: start;
+    gap: var(--arcane-space-5);
+}
+
+.pm-cleanup-inventory {
+    display: grid;
+    gap: var(--arcane-space-3);
+    min-width: 0;
+}
+
+.pm-cleanup-row,
+.pm-cleanup-review {
+    display: grid;
+    justify-items: start;
+    gap: var(--arcane-space-3);
+    min-width: 0;
+    padding: var(--arcane-space-4);
+    overflow-wrap: anywhere;
+}
+
+.pm-cleanup-row > h3,
+.pm-cleanup-row > p,
+.pm-cleanup-review > h3,
+.pm-cleanup-review > p {
+    margin: 0;
+}
+
+.pm-cleanup-review .arcane-field {
+    width: 100%;
+}
+
+.pm-cleanup-original {
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 52rem) {
+    .pm-cleanup-content {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
