@@ -64,6 +64,9 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
     let initialization;
     let mutation = Promise.resolve();
     let corpusReady = false;
+    let taskReadGeneration = {};
+    const lifetime = new AbortController();
+    const taskAcquisitions = new Set();
     const staleTasks = new Set();
     const taskRevisions = new Map();
     const refreshedSources = new Set();
@@ -79,6 +82,9 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
             if (change.recordType === 'task') {
                 staleTasks.add(change.id);
                 taskRevisions.set(change.id, change.record?.updatedAt ?? null);
+                for (const acquisition of taskAcquisitions) {
+                    if (acquisition.taskId === change.id) acquisition.joinable = false;
+                }
             }
         }
     );
@@ -107,14 +113,95 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         }
     }
 
-    function mutate(operation) {
+    function mutate(operation, {snapshot = false} = {}) {
+        // A later read must observe work queued before it, including metadata-only changes.
+        if (!snapshot) taskReadGeneration = {};
         const next = mutation.then(operation, operation);
-        mutation = next.catch(
+        mutation = next.then(
+            function releaseMutationResult() {},
             function retainMutationFailure(error) {
                 console.error('PM source operation failed; originals remain with their owner.', error);
             }
         );
         return next;
+    }
+
+    function acquireTaskSources(taskId, operation, identity, options, start) {
+        const signal = options.signal
+            ? AbortSignal.any(
+                [lifetime.signal, options.signal]
+            ) : lifetime.signal;
+        assertActive(signal);
+        let acquisition = Array.from(taskAcquisitions).find(
+            function sameTaskAcquisition(candidate) {
+                return candidate.joinable && candidate.taskId === taskId && candidate.operation === operation
+                    && candidate.identity.length === identity.length
+                    && candidate.identity.every(
+                        function sameSourceInput(value, index) {
+                            return value === identity[index];
+                        }
+                    );
+            }
+        );
+        const created = !acquisition;
+        if (created) {
+            acquisition = {taskId, operation, identity, joinable: true, controller: new AbortController(), consumers: new Set()};
+            taskAcquisitions.add(acquisition);
+        }
+        const request = new Promise(
+            function attachSourceConsumer(resolve, reject) {
+                const consumer = {finish, onProgress: options.onProgress};
+                acquisition.consumers.add(consumer);
+                signal.addEventListener(
+                    'abort', cancel,
+                    {once: true}
+                );
+
+                function finish(succeeded, result) {
+                    signal.removeEventListener('abort', cancel);
+                    acquisition.consumers.delete(consumer);
+                    if (!succeeded) reject(result);
+                    else resolve(result);
+                }
+
+                function cancel() {
+                    finish(false, signal.reason);
+                    if (!acquisition.consumers.size) {
+                        acquisition.joinable = false;
+                        taskAcquisitions.delete(acquisition);
+                        acquisition.controller.abort(signal.reason);
+                    }
+                }
+            }
+        );
+        if (created) {
+            const work = Promise.resolve().then(
+                function startSourceAcquisition() {
+                    assertActive(acquisition.controller.signal);
+                    return start(
+                        {signal: acquisition.controller.signal, onProgress: reportAcquisitionProgress}
+                    );
+                }
+            );
+            work.then(complete, failed);
+        }
+        return request;
+
+        function reportAcquisitionProgress(state) {
+            for (const consumer of acquisition.consumers) reportProgress(consumer.onProgress, state);
+        }
+
+        function complete(result) {
+            taskAcquisitions.delete(acquisition);
+            acquisition.joinable = false;
+            for (const consumer of acquisition.consumers) consumer.finish(true, result);
+        }
+
+        function failed(error) {
+            taskAcquisitions.delete(acquisition);
+            acquisition.joinable = false;
+            for (const consumer of acquisition.consumers) consumer.finish(false, error);
+        }
     }
 
     async function list({projectId, taskId, kind, indexed, signal} = {}) {
@@ -714,7 +801,40 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         });
     }
 
-    function importConversation(taskId, options = {}) {
+    async function importConversation(taskId, options = {}) {
+        const task = await acquireTaskSources(
+            taskId,
+            'task-metadata',
+            [],
+            options,
+            function readConversationTask() {
+                return pmData.getTask(taskId);
+            }
+        );
+        assertActive(lifetime.signal);
+        assertActive(options.signal);
+        if (!task?.origin?.threadId || !bridge?.readConversation) {
+            throw sourceError('Connect this task to an accessible Codex conversation before importing its complete history.');
+        }
+        const connection = bridge.status?.();
+        return acquireTaskSources(
+            taskId,
+            'conversation-import',
+            [
+                task.updatedAt, task.projectId, task.title, task.archivedAt,
+                task.origin.provider, task.origin.accountId, task.origin.hostId,
+                task.origin.threadId, task.origin.projectId, task.origin.url,
+                connection?.connectionId, connection?.originIdentity?.provider,
+                connection?.originIdentity?.accountId, connection?.originIdentity?.hostId
+            ],
+            options,
+            function startConversationImport(sharedOptions) {
+                return orderConversationImport(taskId, task, sharedOptions);
+            }
+        );
+    }
+
+    function orderConversationImport(taskId, task, options) {
         // Same-task snapshots retain read order without holding the corpus during native I/O.
         const previous = conversationRefreshes.get(taskId) || Promise.resolve();
         const current = previous.then(readAndRetainConversation, readAndRetainConversation);
@@ -727,11 +847,6 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
 
         async function readAndRetainConversation() {
             assertActive(options.signal);
-            const task = await pmData.getTask(taskId);
-            assertActive(options.signal);
-            if (!task?.origin?.threadId || !bridge?.readConversation) {
-                throw sourceError('Connect this task to an accessible Codex conversation before importing its complete history.');
-            }
             const result = await bridge.readConversation({threadId: task.origin.threadId, signal: options.signal});
             assertActive(options.signal);
             if (result.coverage?.complete !== true || !Array.isArray(result.original?.turns)) {
@@ -859,6 +974,22 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         if (typeof taskId !== 'string' || !taskId.trim()) {
             throw sourceError('Select a task before reading its retained sources.', 'PM_SOURCE_INPUT');
         }
+        const kind = options.kind;
+        return acquireTaskSources(
+            taskId,
+            'task-read',
+            [kind, taskReadGeneration],
+            options,
+            function startTaskSourceRead(sharedOptions) {
+                return readRetainedTaskSources(
+                    taskId,
+                    {kind, ...sharedOptions}
+                );
+            }
+        );
+    }
+
+    async function readRetainedTaskSources(taskId, options) {
         assertActive(options.signal);
         let records;
         const failures = [];
@@ -868,7 +999,8 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                     return list(
                         {taskId, kind: options.kind, signal: options.signal}
                     );
-                }
+                },
+                {snapshot: true}
             );
         } catch (error) {
             if (options.signal?.aborted || !Array.isArray(error.sources)) throw error;
@@ -1066,6 +1198,9 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         removeFromIndex(id) { return setIndexed(id, false); },
         restoreToIndex(id) { return setIndexed(id, true); },
         dispose() {
+            lifetime.abort(
+                new DOMException('The source library was disposed.', 'AbortError')
+            );
             unsubscribe?.();
             events.dispose();
         }

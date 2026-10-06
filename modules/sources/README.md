@@ -41,7 +41,7 @@ No original is deleted by index removal or task archival.
 | `getSelection({signal} = {})` | Return `{sources, unavailableIds, complete}` with full `read` results in selection order. File values remain File objects; consumers store them as files, never JSON-serialize them. |
 | `getQuery(projectId)` | Return the complete saved query, default `''`. |
 | `removeFromIndex(id)` / `restoreToIndex(id)` | Change searchable membership only; retain originals, metadata, selection, native chats and system files. |
-| `dispose()` | Release the task-record subscription and source event handle; active operations use their caller-owned cancellation signals. |
+| `dispose()` | Cancel shared task acquisitions and release the task-record subscription and source event handle. Other operations retain their caller-owned cancellation signals. |
 
 `mountSourcesView(container, {sources, projectId, sourceId, taskId, handoffId, onNavigate, onSelection,
 onStatus, signal})` returns `{dispose()}`. Routes are `task`, `sources`, and
@@ -107,6 +107,40 @@ adds one previous-text read per refreshed record. Folder refresh compares each
 staged text record at publication, keeping decoded folder bodies out of the
 pending metadata list. Storage and event mechanics remain SDK-owned; PM owns
 the task association, original-content mapping, and avatar input selection.
+
+Concurrent `importConversation` calls share active work when the PM task,
+revision, display associations, full saved native origin, and observed bridge
+connection identity match. Distinct imports remain ordered per task. Concurrent
+`readTaskSources` calls share one metadata enumeration and one set of original
+reads when their task, exact `kind` option and queue generation match. An omitted
+kind remains different from explicit `null`. Queueing a non-snapshot operation
+advances that generation before it starts, so a subsequent reader waits for
+earlier queued work instead of joining an older snapshot. This conservatively
+also separates reads across queued query or selection writes. Task-record
+events retire matching acquisitions from further sharing; existing consumers
+keep their selected operation and its ordinary freshness result.
+
+Each caller owns its cancellation and progress observer. Cancelling one caller
+rejects only that caller, removes its observer, and leaves other consumers
+running. Cancelling the last caller aborts the shared signal through native
+reading, retention and indexing, or stops further retained-original groups.
+Already-started DBOPFS reads finish through their existing storage owner;
+Sources suppresses their cancelled result. Library disposal cancels every
+shared acquisition. Progress observer failures remain observational. Complete
+results and errors retain their existing shapes; active consumers receive the
+same result and must leave its records unchanged.
+
+Acquisition entries and listeners are released on success, failure or last
+consumer cancellation. The mutation queue retains completion only, never its
+last result. There is no completed transcript cache, timer or polling. Callers
+own returned references and release them when their work finishes; the canonical
+retained originals and prior revisions keep their existing storage lifecycle.
+Later non-overlapping calls perform fresh acquisition. For two matching active
+portrait consumers this reduces two native reads/retention/index passes to one
+and two full original-read passes to one; elapsed runtime has not been measured.
+The coordination is PM task/source policy in this DAO. SDK DBOPFS, corpus and
+event owners remain unchanged; the inspected published `arcane-os@0.79.0` API
+does not expose this task-acquisition contract.
 
 One import batch performs one corpus replacement, regardless of batch record
 count. Independent file reads settle in groups of four; errors identify actual
