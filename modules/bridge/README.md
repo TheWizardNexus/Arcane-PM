@@ -194,6 +194,13 @@ history and are retrieved only for explicit inspection.
 
 The project-owned [plugin source](../../bridge/codex-hooks/README.md) prepares a
 portable relay artifact using the installed public SDK Core client extension.
+Its existing positional URL selects the development receiver. Explicit
+`--native` preparation uses the same application launch context and the public
+`arcane-os/core/host` connect-only client, with a separate output artifact.
+The application must select `sharedHost`; the relay neither starts nor shuts
+down its Core and never guesses another receiver. It preserves the selected
+launch working directory for relative locations and awaits the actual receipt
+acknowledgment followed by its own client closure.
 Preparation does not activate it. Native installation, review, scope and desktop
 restart are separate operations. A native command interruption can leave an
 unknown delivery outcome; there is no automatic retry or fabricated success.
