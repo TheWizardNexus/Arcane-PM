@@ -157,16 +157,18 @@ import coverage remains a separate result. A native task missing its account,
 host or thread association exposes a reconnect action before preparation.
 App-owned system instructions follow the supplied light and dark references:
 distinctive illustrated adult human workers and a project guide, with friendly
-expressive faces, individual hairstyles, softly shaded forms and centered
-head-and-shoulder composition suited to a round crop. The actual work informs
-their character, clothing and one subtle accessory. Deep teal, warm ivory,
+expressive faces, individual hairstyles, softly shaded forms and a tight
+face-and-hair composition with only the tops of the shoulders visible. The actual
+work informs their character, clothing and one subtle accessory. Deep teal, warm ivory,
 muted gold and restrained lavender appear within the clothing and background.
-The instructions specify gentle dimensional shading, fine low-contrast contours,
-balanced adult features, expressive eyes and space around the complete hairstyle.
+The instructions specify full color, soft matte shading with rounded facial volume,
+subtle contours, expressive eyes, a collarbone crop and a small margin around the
+complete hairstyle, preserving individual complexion and hair texture.
 Initial generation also supplies the native
 image owner's separate `negative_prompt` parameter to discourage photography,
-lettering, labels and palette charts. These are generation instructions;
-visual comparison with the approved references establishes the actual result.
+lettering, labels, palette charts, long torso and hand compositions, decorative
+scenery and crowns, and monochrome etched rendering. These are generation
+instructions; visual comparison with the approved references establishes the actual result.
 The complete actual response becomes the image prompt through the published
 image owner. No authored source is rewritten or wrapped into that prompt.
 
