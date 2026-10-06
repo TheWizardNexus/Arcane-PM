@@ -6,8 +6,8 @@
     <meta name="description" content="Meet Arcane PM by TWiN, a project companion in development for organizing Codex tasks, sources, local preparation and context handoffs.">
     <title>Arcane PM by TWiN — A familiar face for every task</title>
     <script src="shared/theme.js"></script>
-    <link rel="stylesheet" href="shared/site.css">
-    <script src="shared/shell.js" defer></script>
+    <link rel="stylesheet" href="shared/site.css?v=3">
+    <script src="shared/shell.js?v=3" defer></script>
 </head>
 <body data-site-root="./" data-section="home">
     <header data-site-header><a href="index.html">Arcane PM</a></header>
@@ -16,24 +16,23 @@
             <section class="home-hero" aria-labelledby="home-title">
                 <div class="hero-copy">
                     <p class="eyebrow development-badge">In development</p>
-                    <h1 id="home-title">A familiar face for every task.</h1>
+                    <h1 id="home-title"><span>A familiar face</span> <span>for every task.</span></h1>
                     <p class="lede">Bring your Codex projects, conversations, and working files together. Find what matters, pass work forward, and keep preparing between sessions.</p>
                     <div class="button-row">
                         <a class="button" href="how-it-works/index.html">See how it works <span aria-hidden="true">→</span></a>
-                        <a class="button secondary" href="docs/index.html">Read the docs</a>
+                        <a class="button secondary" href="docs/index.html" aria-label="Read the docs"><span class="desktop-label">Read the docs</span><span class="mobile-label">Docs</span></a>
                     </div>
                 </div>
                 <figure class="product-preview">
-                    <picture class="theme-light-image"><source media="(max-width: 760px)" srcset="assets/mobile-panel-light.png"><img src="assets/team-light.png" alt="Illustrative project workspace with familiar task faces grouped by Working, Needs you, and Ready next. These are sample tasks, not live activity."></picture>
-                    <picture class="theme-dark-image"><source media="(max-width: 760px)" srcset="assets/mobile-panel-dark.png"><img src="assets/team-dark.png" alt="Illustrative project workspace with familiar task faces grouped by Working, Needs you, and Ready next. These are sample tasks, not live activity."></picture>
-                    <figcaption>Illustrative workspace <span aria-hidden="true">·</span> Sample tasks</figcaption>
+                    <div class="workspace-illustration" role="img" aria-label="Illustrative workspace with familiar task faces grouped by Working, Needs you, and Ready next. These are sample tasks, not live activity."></div>
+                    <figcaption class="visually-hidden">Illustrative workspace. Sample tasks.</figcaption>
                 </figure>
             </section>
             <nav class="explore-strip" aria-label="Take a closer look">
                 <h2>Take a closer look</h2>
-                <a href="team/index.html"><strong>Your project team →</strong><span>See who is working and what needs you.</span></a>
-                <a href="handoffs/index.html"><strong>Context handoffs →</strong><span>Carry the right work into the next task.</span></a>
-                <a href="work-locally/index.html"><strong>Local preparation →</strong><span>Keep organizing between Codex sessions.</span></a>
+                <a href="team/index.html"><svg class="explore-icon" viewBox="0 0 32 32" aria-hidden="true"><circle cx="12" cy="11" r="4"/><path d="M4 27v-3c0-6 16-6 16 0v3H4Zm16-20c6-1 7 7 1 8m3 5c4 0 5 3 5 7h-5"/></svg><span><strong>Your project team →</strong><span>See who is working and what needs you.</span></span></a>
+                <a href="handoffs/index.html"><svg class="explore-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M8 3h11l7 7v19H8V3Zm11 0v8h7M13 17h8m-8 6h8"/></svg><span><strong>Context handoffs →</strong><span>Carry the right work into the next task.</span></span></a>
+                <a href="work-locally/index.html"><svg class="explore-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 8h10l3 4h13v16H3V8Zm0 4h26"/></svg><span><strong>Local preparation →</strong><span>Keep organizing between Codex sessions.</span></span></a>
             </nav>
         </div>
     </main>
