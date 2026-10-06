@@ -34,13 +34,13 @@
 <p class="lede">Arcane PM owns the purpose of the work. The Arcane SDK owns reusable model execution and lifecycle.</p>
 <p>Planned AI work includes finding relevant material, organizing context, developing a task plan, and generating task-worker faces. These are application workflows composed through supported SDK interfaces.</p>
 <h2 id="scope">Intended runtime scope</h2>
-<p>The requirements include Jev, ONNX, llama.cpp, Ollama, and optional DigitalOcean inference. This list expresses intended support. Available models, concrete adapters, host requirements, and execution behavior still need to be established in Arcane PM.</p>
+<p>The requirements include Jev, ONNX, llama.cpp, Ollama, and optional DigitalOcean inference. This list expresses intended support; each model and provider’s execution behavior needs evidence from its own integration. Native ONNX execution and native image generation require the running Arcane PM host. The static browser PWA does not supply that host; see <a href="concepts.html#run-locally">local setup and browser packaging</a>.</p>
 <h2 id="readiness">Readiness belongs at inference</h2>
 <p>The planned interface acknowledges a request immediately and observes the model owner’s state. Inference starts when the exact selected provider and model are ready and loaded. Project browsing, record reading, and task preparation remain usable while a model loads.</p>
 <p>If the selected model unloads, fails, or changes before a response commits, its request must stop and observe the next authoritative ready state. Windows, Linux, and macOS remain intended desktop targets; each runtime’s actual availability needs its own evidence.</p>
 <h2 id="content">Complete inputs and responses</h2>
 <p>Selected source content reaches the operation unchanged. Instructions and routing information travel separately. Visible response chunks appear in order as they arrive; cancellation and genuine failure remain visible in the owning task surface.</p>
-<p>Development is intended to follow the published SDK’s <code>latest</code> channel. An implementation reference will identify the public interfaces actually adopted and their observed behavior.</p>
+<p>The application declares the published <code>arcane-os</code> dependency as <code>latest</code> during development. That declaration is separate from the installed version and from observed model execution. Integration references identify the public interfaces adopted and their respective evidence.</p>
 <nav class="doc-pagination" aria-label="Article navigation"><a href="handoff-example.html"><small>Previous</small>← Handoff example</a><a href="ui-components.html"><small>Next page</small>UI components →</a></nav>
 </article>
 <nav class="page-contents" aria-label="On this page"><p>On this page</p><ul><li><a href="#scope">Intended runtime scope</a></li><li><a href="#readiness">Readiness belongs at inference</a></li><li><a href="#content">Complete inputs and responses</a></li></ul></nav>

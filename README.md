@@ -51,7 +51,9 @@ The intended npm package will provide reusable project-management functionality 
 
 Application data and model assets belong in DBOPFS. Working files stay in their selected system project folders. Application source remains at the repository root; the intentionally public marketing site and developer docs belong in `site/`.
 
-The planned implementation uses plain HTML, CSS, and JavaScript. Development consumers use the published `arcane-os` SDK through its public package boundary and track `latest`. Arcane PM's package name, installation steps, and callable API will be documented when their contracts are established.
+The application uses plain HTML, CSS, and JavaScript with the published `arcane-os` SDK, declared as `latest` during development. From this repository's root, run `npm i`, then `npm run dev`, and open `http://127.0.0.1:4310/index.html`. See [local development and browser packaging](site/docs/concepts.html#run-locally) for the PWA configuration, generated files, and selected package commands.
+
+The browser PWA implementation is available; actual browser installation remains unverified. Native Codex access, native ONNX execution, and native image generation require the running Arcane PM host. The static PWA does not supply that host. The private application package is `arcane-pm-app`; the public reusable npm package, its installation contract, and callable API remain separate work.
 
 ## Explore the designs
 

@@ -43,9 +43,25 @@
 <p>A prepared handoff is <strong>ready</strong>. It becomes <strong>accepted</strong> only when its destination confirms acceptance. Starting the assignment and completing its work are further, separate events.</p>
 <p>That distinction keeps a polished draft from being mistaken for delivered work. The proposed task record keeps preparation, delivery, and execution visible without asking a face or a colored dot to carry the whole meaning.</p>
 <p>Archiving changes the active view. Deleting selected disposable files changes what is stored. <a href="storage.html">Storage and cleanup</a> explains their different effects.</p>
+<h2 id="run-locally">Run the application locally</h2>
+<p>With Node.js and npm available, run these commands from the application repository root:</p>
+<pre><code>npm i
+npm run dev</code></pre>
+<p>Open <code>http://127.0.0.1:4310/index.html</code>. The development command serves the application’s source and composes its declared local host services. Native Codex access, native ONNX execution, and native image generation need that running Arcane PM host and their respective runtime readiness.</p>
+<p>The application declares <code>arcane-os</code> as <code>latest</code>; the retained lockfile records the selected SDK version. A dependency refresh uses the coordinated application-owned workflow, including <code>npm update arcane-os</code> and comparison of the installed and locked versions with the published channel before generation or packaging.</p>
+<h2 id="browser-package">PWA and browser packaging</h2>
+<p><code>package.pwa</code> in <code>arcane-app.json</code> owns the application’s PWA metadata and icon selection. Refresh its managed import map and PWA files through the installed SDK:</p>
+<pre><code>npm run import-map -- --app arcane-pm</code></pre>
+<p>The generated root files are <code>arcane.webmanifest</code>, <code>arcane-offline.json</code>, <code>arcane-sw.js</code>, and <code>arcane-pwa.mjs</code>. Keep these generated files committed; change their authored configuration and regenerate through the SDK.</p>
+<p>For a selected browser artifact, package the application, then verify that output:</p>
+<pre><code>npm exec -- arcane package --app arcane-pm
+npm exec -- arcane verify --app arcane-pm</code></pre>
+<p>The browser output is <code>dist/arcane-pm</code>. The application composition owner recorded successful packaging and verification with SDK <code>0.69.0</code>, followed by a browser reload that retained the shell, styles, guide image, and navigation after its package preview server stopped. That observation covers those cached browser resources; native services and native model execution still depend on their running host.</p>
+<p>Installation is controlled by the browser. Use its install action when offered; actual installation remains unverified. A static browser package supplies no native host. Native executable targets remain separate work.</p>
+<p>The repository’s <code>arcane-pm-app</code> package is private application setup. The reusable public npm package, installation contract, callable API, and exported component library remain separate work.</p>
 <nav class="doc-pagination" aria-label="Article navigation"><a href="index.html"><small>Previous</small>← Overview</a><a href="project-bridge.html"><small>Next page</small>Project bridge →</a></nav>
 </article>
-<nav class="page-contents" aria-label="On this page"><p>On this page</p><ul><li><a href="#building-blocks">The building blocks</a></li><li><a href="#states">Name the actual state</a></li></ul></nav>
+<nav class="page-contents" aria-label="On this page"><p>On this page</p><ul><li><a href="#building-blocks">The building blocks</a></li><li><a href="#states">Name the actual state</a></li><li><a href="#run-locally">Run locally</a></li><li><a href="#browser-package">PWA &amp; packaging</a></li></ul></nav>
 </div>
 </main>
 <footer data-site-footer><p>Arcane PM by TWiN · Application under development</p></footer>
