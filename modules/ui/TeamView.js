@@ -72,16 +72,22 @@ function nativeStateText(state) {
     return labels[state] || labels.unknown;
 }
 
+function taskStateText(task, current) {
+    if (current) return nativeStateText(current.state);
+    return task.origin?.provider === 'codex' ? 'Activity unconfirmed' : statusText(task);
+}
+
 function createTaskActivityPresentation() {
     const node = element('section', 'pm-task-activity');
     const heading = element('strong', '');
     const currentState = element('p', 'pm-muted');
+    const recordedState = element('p', 'pm-muted');
     const message = element('p', '');
     const timestamp = element('time', '');
     const lastHeading = element('strong', '');
     const lastMessage = element('p', '');
     const lastTimestamp = element('time', '');
-    node.append(heading, currentState, message, timestamp, lastHeading, lastMessage, lastTimestamp);
+    node.append(heading, currentState, recordedState, message, timestamp, lastHeading, lastMessage, lastTimestamp);
     node.hidden = true;
 
     function setText(target, value) {
@@ -111,6 +117,7 @@ function createTaskActivityPresentation() {
             setText(heading, 'Current Codex activity is unconfirmed');
         }
         setText(currentState, !current && activity ? 'Current activity is unconfirmed.' : '');
+        setText(recordedState, task ? `PM work state: ${statusText(task)}` : '');
         setText(message, activity?.message || '');
         showTime(timestamp, activity?.observedAt);
         const last = !current && activity?.availability !== 'observed' ? activity?.lastObserved : null;
@@ -331,12 +338,8 @@ export function mountTeamView(container, options) {
     const overview = element('div', 'pm-team-layout');
     const board = element('div', 'pm-board');
     const guide = element('aside', 'pm-team-guide arcane-card');
-    const guideImage = element('img', 'pm-guide-face');
-    guideImage.src = './assets/project-guide.png';
-    guideImage.alt = '';
-    const guidePortrait = element('div', 'pm-guide-portrait');
+    const guidePortrait = element('div', 'pm-task-face pm-guide-portrait', '◇');
     guidePortrait.setAttribute('aria-hidden', 'true');
-    guidePortrait.append(guideImage);
     const guideSummary = element('ul', 'pm-guide-summary');
     const guideAttention = element('li', '');
     const guideAttentionText = element('span', 'pm-guide-summary-text', 'Opening task records…');
@@ -500,7 +503,6 @@ export function mountTeamView(container, options) {
         projectLabel.textContent = project ? project.name : 'Selected project unavailable';
         projectPortrait.update(project?.faceRef ?? null);
         guideSavedPortrait.update(project?.faceRef ?? null);
-        if (!project?.faceRef) guidePortrait.replaceChildren(guideImage);
         projectAvatar.update(project);
     }
 
@@ -743,7 +745,7 @@ export function mountTeamView(container, options) {
         const face = element('div', 'pm-task-face', '◇');
         face.setAttribute('aria-hidden', 'true');
         const title = element('h3', 'pm-task-title', task.title);
-        const state = element('p', 'pm-task-state', statusText(task));
+        const state = element('p', 'pm-task-state');
         const description = element('p', 'pm-task-description');
         const activity = createTaskActivityPresentation();
         const avatar = avatars.add('task', task.id);
@@ -767,13 +769,14 @@ export function mountTeamView(container, options) {
 
         function update(nextTask) {
             currentTask = nextTask;
-            const nextState = statusText(nextTask);
+            const currentActivity = taskActivity?.current(nextTask.id);
+            const nextState = taskStateText(nextTask, currentActivity);
             const nextDescription = nextTask.attention?.message || nextTask.nextAction || '';
             if (title.textContent !== nextTask.title) title.textContent = nextTask.title;
             if (state.textContent !== nextState) state.textContent = nextState;
             if (description.textContent !== nextDescription) description.textContent = nextDescription;
             description.hidden = !nextDescription;
-            activity.update(nextTask, taskActivity?.current(nextTask.id));
+            activity.update(nextTask, currentActivity);
             portrait.update(nextTask.faceRef);
             avatar.update(nextTask);
         }
@@ -1128,13 +1131,14 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         }
         if (!presentation) openTask(task);
         presentation.notice.hidden = true;
-        const nextState = statusText(task);
+        const currentActivity = taskActivity?.current(taskId);
+        const nextState = taskStateText(task, currentActivity);
         const nextDescription = task.attention?.message || task.nextAction || task.assignment;
         if (presentation.title.textContent !== task.title) presentation.title.textContent = task.title;
         if (presentation.state.textContent !== nextState) presentation.state.textContent = nextState;
         if (presentation.description.textContent !== nextDescription) presentation.description.textContent = nextDescription;
         presentation.description.hidden = !nextDescription;
-        presentation.activity.update(task, taskActivity?.current(taskId));
+        presentation.activity.update(task, currentActivity);
         portrait.update(task.faceRef);
         presentation.avatar.update(task);
     }

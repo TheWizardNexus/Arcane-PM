@@ -953,17 +953,7 @@ a.pm-task-title:hover {
     overflow: hidden;
 }
 
-.pm-guide-face {
-    display: block;
-    inline-size: 140%;
-    block-size: 140%;
-    max-inline-size: none;
-    margin: -20%;
-    border-radius: 50%;
-    object-fit: contain;
-}
-
-.pm-guide-portrait > img:not(.pm-guide-face) {
+.pm-guide-portrait > img {
     display: block;
     inline-size: 100%;
     block-size: 100%;

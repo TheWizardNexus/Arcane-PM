@@ -87,13 +87,17 @@ function getModels() {
 async function openModels() {
     const module = await import('./local-ai/index.js');
     const services = module.createPMPreparationServices(
-        {getStorage, pmData, getSources: getAvatarSources, signal: lifetime.signal}
+        {getStorage, pmData, getSources: getAvatarSources, getWorkflows: getAvatarWorkflows, signal: lifetime.signal}
     );
     return {...services, mountLocalAIView: module.mountLocalAIView};
 }
 
 async function getAvatarSources() {
     return (await getSources()).sources;
+}
+
+async function getAvatarWorkflows() {
+    return (await getWorkflows()).workflows;
 }
 
 function modelsFailed(error) {
@@ -176,7 +180,7 @@ async function openCleanup() {
     const cleanup = module.createCleanupService(
         {pmData, bridge: connection.bridge, disposableResources: transfers.handoffs.disposableResources}
     );
-    return {cleanup, mountCleanupView: module.mountCleanupView};
+    return {cleanup, taskActivityReady: Promise.resolve(connection.taskActivity), mountCleanupView: module.mountCleanupView};
 }
 
 function cleanupFailed(error) {
