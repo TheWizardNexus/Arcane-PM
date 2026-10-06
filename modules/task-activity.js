@@ -24,6 +24,7 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
     const byThread = new Map();
     const rowsByThread = new Map();
     const observations = new Map();
+    const selectedCounts = new Map();
     const changedDuringScan = new Set();
     let snapshot = null;
     let observer;
@@ -40,7 +41,7 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
         onError?.('Native task activity is unavailable. Saved task details remain available.');
     }
 
-    function setAssociation(taskId, origin) {
+    function setAssociation(taskId, origin, notify = true) {
         const previous = associations.get(taskId);
         const next = completeOrigin(origin) ? origin : null;
         if ((!previous && !next) || sameOrigin(previous, next)) return false;
@@ -56,29 +57,59 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
             if (!byThread.has(next.threadId)) byThread.set(next.threadId, new Set());
             byThread.get(next.threadId).add(taskId);
         }
-        publish(taskId);
+        updateSelection(previous, next);
+        if (notify) publish(taskId);
         return true;
+    }
+
+    function belongsToConnection(origin) {
+        const identity = snapshot?.connection.originIdentity;
+        return identity && origin?.accountId === identity.accountId
+            && origin?.hostId === identity.hostId;
+    }
+
+    function updateSelection(previous, next) {
+        if (!indexed || !observer || disposed) return;
+        // Several PM tasks may share one native thread. Change its selection
+        // only when the first matching association arrives or the last leaves.
+        const affected = new Map();
+        for (const [origin, adjustment] of [[previous, -1], [next, 1]]) {
+            if (!belongsToConnection(origin)) continue;
+            const count = selectedCounts.get(origin.threadId) || 0;
+            if (!affected.has(origin.threadId)) affected.set(origin.threadId, count);
+            const updated = count + adjustment;
+            if (updated) selectedCounts.set(origin.threadId, updated);
+            else selectedCounts.delete(origin.threadId);
+        }
+        const add = [];
+        const remove = [];
+        for (const [threadId, previousCount] of affected) {
+            const selected = selectedCounts.has(threadId);
+            if (!previousCount && selected) add.push(threadId);
+            if (previousCount && !selected) remove.push(threadId);
+        }
+        if (add.length || remove.length) {
+            observer.updateThreadIds(
+                {add, remove}
+            );
+        }
     }
 
     function selectThreads() {
         if (!indexed || !observer || disposed) return;
-        const identity = snapshot?.connection.originIdentity;
-        const selected = new Set();
-        if (identity) {
-            for (const origin of associations.values()) {
-                if (origin.accountId === identity.accountId && origin.hostId === identity.hostId) {
-                    selected.add(origin.threadId);
-                }
+        selectedCounts.clear();
+        for (const origin of associations.values()) {
+            if (belongsToConnection(origin)) {
+                selectedCounts.set(origin.threadId, (selectedCounts.get(origin.threadId) || 0) + 1);
             }
         }
-        observer.setThreadIds([...selected]);
+        observer.setThreadIds([...selectedCounts.keys()]);
     }
 
     function taskChanged(change) {
         if (change.recordType !== 'task') return;
         if (!indexed) changedDuringScan.add(change.id);
         if (!setAssociation(change.id, change.record?.origin)) return;
-        selectThreads();
         const origin = associations.get(change.id);
         const row = rowsByThread.get(origin?.threadId);
         if (row) retainTaskRow(change.id, row);
@@ -89,13 +120,14 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
         if (disposed) return;
         for (const association of initial) {
             if (!changedDuringScan.has(association.taskId)) {
-                setAssociation(association.taskId, association.origin);
+                setAssociation(association.taskId, association.origin, false);
             }
         }
         indexed = true;
         changedDuringScan.clear();
         selectThreads();
-        for (const row of snapshot?.threads || []) retainRow(row);
+        for (const row of rowsByThread.values()) retainRow(row);
+        publish();
     }
 
     function receiveSnapshot(next) {
@@ -110,7 +142,16 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
             || previous.connection.originIdentity?.provider !== next.connection.originIdentity?.provider
             || previous.connection.originIdentity?.accountId !== next.connection.originIdentity?.accountId
             || previous.connection.originIdentity?.hostId !== next.connection.originIdentity?.hostId;
-        rowsByThread.clear();
+        if (!next.incremental || connectionChanged) rowsByThread.clear();
+        for (const threadId of next.removedThreadIds || []) {
+            const removed = rowsByThread.get(threadId);
+            rowsByThread.delete(threadId);
+            for (const taskId of byThread.get(threadId) || []) {
+                if (!sameOrigin(associations.get(taskId), removed?.origin)) continue;
+                observations.delete(taskId);
+                publish(taskId);
+            }
+        }
         // Loss rows retain their own origin even after the connection switches account.
         for (const row of next.threads) {
             rowsByThread.set(row.threadId, row);
@@ -208,12 +249,16 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
         associations.clear();
         byThread.clear();
         rowsByThread.clear();
+        selectedCounts.clear();
         events.dispose();
         signal?.removeEventListener('abort', dispose);
     }
 
     pmData.subscribe(taskChanged, {signal: lifetime.signal});
-    observer = bridge.observeTaskActivity(receiveSnapshot, {signal: lifetime.signal, emitCurrent: true});
+    observer = bridge.observeTaskActivity(
+        receiveSnapshot,
+        {signal: lifetime.signal, emitCurrent: true, incremental: true}
+    );
     const ready = indexAssociations();
     ready.catch(report);
     signal?.addEventListener('abort', dispose, {once: true});
