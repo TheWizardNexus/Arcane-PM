@@ -582,7 +582,7 @@ export function createPMModelServices(
     function getImageRuntime() {
         assertOpen();
         imageRuntime ??= createCoreImageRuntime(
-            {client: resolveCore(), signal: lifetimeSignal}
+            {client: client ?? undefined, signal: lifetimeSignal}
         );
         return imageRuntime;
     }
@@ -590,7 +590,7 @@ export function createPMModelServices(
     function getONNXRuntime() {
         assertOpen();
         onnxRuntime ??= createCoreONNXRuntime(
-            {client: resolveCore()}
+            {client: client ?? undefined}
         );
         return onnxRuntime;
     }

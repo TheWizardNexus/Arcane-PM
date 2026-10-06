@@ -216,12 +216,15 @@ fetch path is added. Image original selection is independent of this source
 contract. Actual download, loading and inference remain distinct from static
 source-format compatibility.
 
-The published `0.65.0` image and ONNX accessors retain the Core client supplied
-at construction. Their attachment after a later Core installation or replacement
-remains an SDK-owner follow-through item. Runtime installation, checkpoint
-preparation, native loading and actual generation remain separate observed
-states. Imported originals and deliberate face selection continue through their
-existing storage owner.
+The published `0.67.0` image and ONNX accessors follow Core installation and
+retirement when their client is unspecified. PM leaves that default selection
+with the SDK, so the existing accessor can attach after Core becomes available.
+A non-null client explicitly supplied to `createPMModelServices` remains fixed.
+The SDK owns retirement cancellation and excludes late state and results from
+the replaced client. See the [published image lifecycle](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.67.0/docs/reference/local-image-generation.md).
+Runtime installation, checkpoint preparation, native loading and actual
+generation remain separate observed states. Imported originals and deliberate
+face selection continue through their existing storage owner.
 
 ## Faces
 
