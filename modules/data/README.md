@@ -24,6 +24,9 @@ assets remain with those owners. Use the SDK's `get`, `set`, `getAllKeys`,
 `set` uses JSON for records; image/model owners use the SDK's complete asset
 contracts. Content stays separate from metadata. PM tables are `pm_projects`
 and `pm_tasks`, with one `<PM id>.json` file per record.
+Record lists select the terminal `.json` filenames before decoding IDs or
+reading values. Other files in those tables remain untouched and are outside
+the PM record query. Unreadable `.json` records still report their full errors.
 
 ## Callable API
 

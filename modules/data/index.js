@@ -285,7 +285,10 @@ async function listRecords(recordType, options) {
     checkCancellation(options.signal);
     const db = await getStorage();
     checkCancellation(options.signal);
-    const keys = await db.getAllKeys(tables[recordType]);
+    // DBOPFS enumerates files; this domain stores records with a terminal .json suffix.
+    const keys = (await db.getAllKeys(tables[recordType])).filter(function isPMRecord(key) {
+        return key.endsWith('.json');
+    });
     const records = [];
     const failures = [];
     let position = 0;
