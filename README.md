@@ -1,7 +1,66 @@
+![Arcane PM by TWiN — a familiar face for every task](docs/images/arcane-pm-header.png)
+
 # Arcane PM
 
-Arcane PM brings projects, tasks, conversations, and working files together in a local project workspace. Each task keeps a recognizable identity through progress, handoffs, and archive.
+A welcoming workspace for organizing Codex projects, finding prior work, and preparing the next step. Each task has a familiar face, making a growing project easier to follow.
 
-The application is under development. Its planned first increment combines the shared Arcane theme, a project task view, local task records, and saved task faces. Codex coordination, local search, model-assisted planning, and avatar generation will use their supported public interfaces as those integrations are delivered.
+**In development.** These images illustrate the intended experience using sample tasks. They do not demonstrate working integrations. Integration availability will be documented as app functionality is delivered.
 
-Application-specific data belongs in DBOPFS. Working files stay in their selected project folders. The application uses plain HTML, CSS, and JavaScript and consumes the published `arcane-os` SDK, tracking `latest` during development.
+## Meet your project team
+
+See which tasks are working, need your attention, or are ready for their next assignment. A project guide coordinates the work, while each task keeps a link to its original Codex conversation.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/arcane-pm-team-dark.png">
+  <img src="docs/images/arcane-pm-team-light.png" alt="Arcane PM team concept showing recognizable task workers, progress, attention requests, and a project guide.">
+</picture>
+
+## Find it, then carry it forward
+
+The planned local search brings together tasks, task conversations, and working files without spending Codex tokens. Complete original sources remain available to read.
+
+A context handoff collects the assignment, decisions, open questions, selected original messages, and file references. A prepared note supplements those sources. Preparing a handoff and sending it are distinct steps.
+
+<details>
+<summary>See the context-handoff design</summary>
+
+![Context-handoff concept showing selected original instructions, decisions, project-file references, and the next task.](docs/images/arcane-pm-handoff.png)
+
+</details>
+
+## Keep preparing locally
+
+Local Jev and supported local models are intended to help with research, organization, tooling, and preparing work for Codex. Codex handles demanding assignments when a connection and tokens are available. Optional DigitalOcean serverless inference provides another remote provider when selected.
+
+Offline preparation relies on locally available files, records, and installed models. App-owned orchestration can stay with the workspace across account switches; Codex account access and native conversations remain governed by their own account connections.
+
+## Make room for the next step
+
+Archive completed tasks while keeping their history searchable. Review disposable app files separately from working documents and active assignments.
+
+<details>
+<summary>See the tidy-up design</summary>
+
+![Tidy-up concept separating finished-task archival, temporary-file review, and project files still in use.](docs/images/arcane-pm-tidy-up.png)
+
+</details>
+
+## Built to fit your project
+
+The intended npm package will provide reusable project-management functionality and UI components, so teams can build their own interfaces. A decoupled bridge separates project orchestration from Codex and local runtime connections.
+
+Application data and model assets belong in DBOPFS. Working files stay in their selected system project folders. Application source remains at the repository root; the intentionally public marketing site and developer docs belong in `site/`.
+
+The planned implementation uses plain HTML, CSS, and JavaScript. Development consumers use the published `arcane-os` SDK through its public package boundary and track `latest`. Arcane PM's package name, installation steps, and callable API will be documented when their contracts are established.
+
+## Explore the designs
+
+The public site uses focused pages rather than a long scrolling landing page, with matching light, dark, and mobile layouts.
+
+- [Marketing home — light](docs/images/arcane-pm-home-light.png) · [dark](docs/images/arcane-pm-home-dark.png) · [mobile](docs/images/arcane-pm-home-mobile.png)
+- [Developer docs — light](docs/images/arcane-pm-docs-light.png) · [dark](docs/images/arcane-pm-docs-dark.png) · [mobile](docs/images/arcane-pm-docs-mobile.png)
+- [Arcane PM brand — light and dark](docs/images/arcane-pm-brand.png)
+
+[Image-generation prompts](docs/designs/image-prompts.md) record the static design brief and reference direction.
+
+Arcane PM is a TWiN project designed to work with Codex.
