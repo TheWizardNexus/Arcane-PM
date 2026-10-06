@@ -266,6 +266,7 @@ export function createInitialAvatarPreparation(
                 throw new Error('The local text model returned no image description.');
             }
             job.imageRequested = true;
+            setStatus(job, 'Thinking', 'Waiting to create the avatar.');
             const parameters = {
                 negative_prompt: 'photograph, photorealistic, realistic skin texture, glossy plastic surfaces, text, lettering, captions, labels, watermark, color swatches, palette chart, collage'
             };
