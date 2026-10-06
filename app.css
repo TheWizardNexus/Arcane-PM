@@ -1316,43 +1316,60 @@ a.pm-task-title:hover {
     }
 }
 
-/* With no active cards, keep the guide and handoffs near the empty columns. */
-@media (min-width: 64rem) {
+/* At compact desktop widths, the empty board retains its fourth-column guide. */
+@media (min-width: 76rem) and (max-width: 92rem) {
     .pm-team-layout:not(:has(.pm-task-card)) {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) 18.5rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide {
-        grid-template-columns: minmax(14rem, 1fr) minmax(0, 1fr) minmax(14rem, 1fr);
+        grid-template-columns: 5rem minmax(0, 1fr);
         grid-template-areas:
-            "portrait title summary"
-            "portrait subtitle summary"
-            "portrait message summary"
-            "divider divider divider"
-            "open availability preparation";
-        grid-template-rows: auto auto 1fr auto auto;
+            "portrait title"
+            "portrait subtitle"
+            "message message"
+            "summary summary"
+            "divider divider"
+            "open open"
+            "availability availability"
+            "preparation preparation";
         align-items: center;
-        gap: .5rem .9rem;
+        gap: .25rem .5rem;
+        padding: .75rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide h2 {
         grid-area: title;
+        font-size: 1.35rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-subtitle {
         grid-area: subtitle;
+        margin-block-start: 0;
+        font-size: .95rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-portrait {
         grid-area: portrait;
+        inline-size: 5rem;
+        block-size: 5rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide h3 {
         grid-area: message;
+        font-size: 1.1rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-summary {
         grid-area: summary;
+        gap: .25rem;
+        font-size: 1rem;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-icon {
+        flex-basis: 1.4rem;
+        inline-size: 1.4rem;
+        block-size: 1.4rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-divider {
@@ -1361,6 +1378,8 @@ a.pm-task-title:hover {
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-open {
         grid-area: open;
+        min-block-size: 2.75rem;
+        font-size: 1rem;
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-availability {
