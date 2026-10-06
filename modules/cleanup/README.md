@@ -18,11 +18,12 @@ archival, restoration and deletion, and from app-owned resource disposal.
   theme, ThemeBootstrap, and primitives before app styling.
 - There are no provider/model calls, local storage implementations, folder
   scanners, generic deletion adapters, or new third-party dependencies here.
-- Work is one project listing and one selected action at a time in the panel.
+- Work is one scoped inventory and one selected action at a time in the panel.
   A listing reads each owning collection once; execution calls only the selected
   owner. Native connection events invalidate a changed destination without
-  polling, project rescans or automatic cleanup. Native execution refreshes the
-  selected PM association once before dispatch; the bridge owns the exact
+  polling, project rescans or automatic cleanup. Native review reads the selected
+  conversation once through the bridge. Execution refreshes the selected PM
+  association and native review once before dispatch; the bridge owns the exact
   native request and its connection lifetime.
 - Source and intended diff review are selected. Tests, checks, builds, and live
   destructive verification remain unselected. Runtime timings are unmeasured.
@@ -40,15 +41,19 @@ mountCleanupView(container, {
 
 The synchronous factory receives the application's one `pmData` owner, its
 optional Codex bridge, and an optional explicit owner of disposable resources.
-It opens no database. `projectId:null` (the default) selects unassociated PM
-tasks, following the data owner's contract. Listing, review and execution are
+It opens no database. `projectId:null` (the default) selects All projects at this
+workflow boundary. Cleanup omits the `projectId` filter when calling data and
+resource inventories in that scope; Data's explicit-null filter still means
+unassociated tasks. A named project retains its exact filter. Listing includes
+both associated and unassociated tasks across the All projects scope.
+Listing, review and execution are
 asynchronous; subscription registration is synchronous:
 
 | Method | Result and side effects |
 | --- | --- |
-| `listProjectTargets(projectId, {signal} = {})` | Reads the selected project, its complete active and archived task list, and the optional resource inventory concurrently. Returns `{project,tasks,resources,projectError,tasksError,resourcesError,resourcesAvailable,nativeDeleteAvailable}`. Partial data-list failure retains its readable `error.records` and the complete error. Starts no model or native process. |
-| `review({action,targetId,projectId}, {signal} = {})` | Reads one exact task or resource, returning `{action,targetId,projectId,title,target,owner,available,effect,buttonLabel,retained,message,nativeUrl?,native?}`. It performs no mutation. Missing or moved targets are unavailable. Native review also reads the bridge's current observed connection synchronously. |
-| `execute(review, {signal} = {})` | Reviews the target again, then invokes only the selected owner operation. PM/resource operations return `{status,action,targetId,projectId,message,result}` and propagate owner errors. Native result shapes and uncertainty are described below. An unavailable current review returns `{status:'unavailable',review,message}` without dispatch. |
+| `listProjectTargets(projectId, {signal} = {})` | Reads the selected project when named, the complete active and archived task list in scope, and the optional resource inventory concurrently. Returns `{project,tasks,resources,projectError,tasksError,resourcesError,resourcesAvailable,nativeDeleteAvailable}`. Partial data-list failure retains its readable `error.records` and the complete error. Starts no model or native process. |
+| `review({action,targetId,projectId}, {signal} = {})` | Reads one exact task or resource, returning `{action,targetId,projectId,title,target,owner,available,effect,buttonLabel,retained,message,nativeUrl?,native?}` with the target's actual project ID, including `null` for an unassociated target. It performs no mutation. Missing targets and targets outside a named project are unavailable. Native review also reads the selected conversation and binds its returned identity to the current observed connection. |
+| `execute(review, {signal} = {})` | Reviews the target again, retains its reviewed actual project, then invokes only the selected owner operation. PM/resource operations return `{status,action,targetId,projectId,message,result}` and propagate owner errors. Native result shapes and uncertainty are described below. An unavailable current review returns `{status:'unavailable',review,message}` without dispatch. |
 | `subscribeNative(listener, {signal,emitCurrent:true})` | Passes the listener and options to `bridge.subscribe`; callbacks receive current connection state and registration returns unsubscribe. With no bridge subscription, returns a no-op unsubscribe. No alternate event bus or poller is created. |
 
 An `execute` status is `completed` only after the owning operation explicitly
@@ -56,8 +61,10 @@ confirms the matching target's result. `unchanged` is an already absent PM row.
 `unconfirmed` means the owner response did not establish completion and requires
 current-state review before another attempt. Native `failed` means a native
 error response was returned; partial changes may still have occurred.
-`target-changed` means the saved destination or connection changed after review
-and no native action was dispatched. No operation is retried automatically.
+`target-changed` means the target's project, native destination or connection
+changed after review and no owner action was dispatched. Execution compares the
+actual project even when it was `null`, so moving an unassociated target requires
+a fresh review. No operation is retried automatically.
 Complete owner results and errors remain available to the caller; ordinary UI
 displays the separate user-facing message.
 
@@ -98,16 +105,26 @@ native: {
 
 `origin` is the task's saved association, or `null` when absent. `threadId` is
 the associated Codex thread ID, or `null`. `connectedIdentity` is the currently
-connected bridge identity, or `null` when unavailable. `identity` remains
-`null` until the complete saved account and host match the connected Codex
-identity and the selected bridge method is available. `descendants` is complete
+connected bridge identity, or `null` when unavailable. The saved provider, host
+and thread identify the conversation; the saved account identifies its historical
+observer and may differ or be absent. `identity` remains `null` until the saved
+host matches the connected Codex host, the selected bridge method and `readThread`
+are available, and a fresh read returns that exact thread with the same current
+account, host and connection identity throughout the read. `descendants` is complete
 action-specific consequence text. These fields are metadata; task content is
 unchanged. `nativeUrl` uses the bridge's public thread-link method, or the saved
 origin URL when that method is absent. A link requests navigation and never
 claims the original chat was opened or foregrounded.
 
-Native execution compares the fresh thread ID, provider/account/host and
-connection identity against the reviewed destination. A changed destination
+A failed native read retains the selected target and consequences with
+`available:false` and a concise read-unavailable message; complete errors stay in
+developer diagnostics. No cleanup operation has been sent at that point.
+Cancellation propagates to the view without a retry.
+
+Native execution refreshes the selected PM record and native read, then compares
+the thread ID, provider/host and complete current account/host/connection identity
+against the reviewed destination. A historical observing-account change alone
+does not change the conversation's destination. A changed destination
 returns `{status:'target-changed',action,targetId,projectId,review,message}` with
 an unavailable review and no native dispatch. An unavailable fresh review also
 stops before dispatch. The bridge receives the selected thread and identity;
@@ -145,6 +162,8 @@ dispose(id, {signal});
 
 `list` returns complete records with
 `{id,projectId,title,owner,purpose,location,appOwned,lifecycle,usedBy}`.
+An omitted `projectId` filter selects all projects; a supplied ID selects that
+project. The review retains each selected resource's actual project.
 `usedBy` contains complete string identifiers or labels for current users.
 The owner records actual creation ownership and lifecycle rather than inferring
 disposability from a path, task archive, age, or filename. `appOwned:true`,

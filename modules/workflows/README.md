@@ -38,6 +38,7 @@ promises, while `subscribe` and `dispose` are synchronous.
 | Method | Result and effect |
 | --- | --- |
 | `getProjectOverview(projectId, {signal} = {})` | Returns the project, guide, and task/workflow entries described below. |
+| `getTaskOverview(taskId, {signal} = {})` | Returns one `{task, workflow}` entry directly by PM task ID, including tasks with `projectId:null`. |
 | `assign(taskId, assignment, {signal} = {})` | Saves the complete assignment string through `pmData.updateTask`; returns the saved task. |
 | `setNextAction(taskId, nextAction, {signal} = {})` | Saves the complete plan string through `pmData.updateTask`; returns the saved task. |
 | `recordObservation(taskId, observation, {signal} = {})` | Saves attributed workflow evidence, updates task status, atomically appends task evidence, and returns `{task, observation}`. |
@@ -54,7 +55,7 @@ Codex action, model inference, message delivery, or task execution.
 
 ### Overview and stored records
 
-The overview has this shape:
+The project overview has this shape:
 
 ```js
 {
@@ -83,6 +84,14 @@ recorded observation or `null`. This ordering describes recording order, not
 an inference about current activity. Each attention entry pairs its original
 request with the last recorded resolution for that request, or `null`.
 
+`getTaskOverview` returns one `{task, workflow}` entry with that same complete
+history and derived fields. It reads the selected task directly through
+`pmData.getTask`, so an archived task, `projectId:null`, or an unavailable
+associated project does not prevent its overview. No project read or task-list
+scan is needed. An absent task throws `PM_WORKFLOW_NOT_FOUND`; a task with no
+workflow entries has empty arrays and `latestObservation:null`. Both overview
+methods use the same history reader and task/workflow composition.
+
 The shared DBOPFS connection stores guide records in `pm_project_guides` as
 `<encoded-project-id>.json`. Workflow history is append-only in
 `pm_workflow_events`, with one `<encoded-task-id>.<encoded-event-id>.json` per
@@ -92,11 +101,13 @@ entry. Every history entry contains
 also carries `attentionId`. Generated UUIDs identify these PM records;
 filenames encode identifiers only for storage transport.
 
-One overview enumerates workflow keys once, selects keys for the project's
-current task records, and reads those entries with at most four active readers.
+One overview enumerates workflow keys once, selects keys for either the
+project's current tasks or the single requested task, and reads those entries
+with at most four active readers.
 It never rewrites history or opens another database. Removing a PM task leaves
-its workflow records with this domain; an overview only includes tasks that
-still appear in the selected project's data-owner list.
+its workflow records with this domain; a project overview includes tasks in
+the selected project's data-owner list, and a task overview requires the
+selected data-owner record to remain available.
 
 ### Observation and attention inputs
 
@@ -212,11 +223,11 @@ here. Shared storage, event coordination, styling, models, and host transport
 remain with their existing SDK and application owners. There are no SDK or OS
 source changes, local copies of generic SDK mechanics, or new dependencies.
 
-An overview reads one selected project's tasks and one set of PM workflow
-records. A handoff resolves each selected original once per explicit prepare,
-then reuses the stored selection until the user edits the selection or prepares
-again. Handoff file cleanup reads local handoff references once to preserve
-every saved use before offering an unused snapshot for removal. The full
+An overview reads one selected project's tasks or one task directly, and one
+set of PM workflow records. A handoff resolves each selected original once per
+explicit prepare, then reuses the stored selection until the user edits the
+selection or prepares again. Handoff file cleanup reads local handoff references
+once to preserve every saved use before offering an unused snapshot for removal. The full
 delivery and resource contract is in [the handoff module](../handoffs/README.md).
 There is no polling, native cross-project scan, model call on page load, automatic
 delivery retry, or content-length-based work. Views acknowledge work before

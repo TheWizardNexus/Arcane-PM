@@ -7,12 +7,12 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
     async function listProjectTargets(projectId = null, {signal} = {}) {
         signal?.throwIfAborted();
         const tasksRequest = pmData.listTasks(
-            {projectId, signal}
+            projectId === null ? {signal} : {projectId, signal}
         );
         const projectRequest = projectId ? pmData.getProject(projectId) : null;
         const resourcesRequest = disposableResources?.list
             ? disposableResources.list(
-                {projectId, signal}
+                projectId === null ? {signal} : {projectId, signal}
             )
             : [];
         const results = await Promise.allSettled(
@@ -40,7 +40,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
 
         const task = await pmData.getTask(targetId);
         signal?.throwIfAborted();
-        if (!task || task.projectId !== projectId) {
+        if (!task || (projectId !== null && task.projectId !== projectId)) {
             return {
                 action,
                 targetId,
@@ -56,7 +56,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
         const reviewRecord = {
             action,
             targetId,
-            projectId,
+            projectId: task.projectId,
             title: task.title,
             target: task,
             available: true,
@@ -81,7 +81,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
             case 'archive-native-task':
             case 'restore-native-task':
             case 'delete-native-task':
-                return reviewNative(reviewRecord);
+                return reviewNative(reviewRecord, signal);
             default:
                 throw new TypeError(`Unknown PM tidy-up action: ${action}`);
         }
@@ -89,7 +89,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
         return reviewRecord;
     }
 
-    function reviewNative(record) {
+    async function reviewNative(record, signal) {
         const origin = record.target.origin;
         const connection = bridge?.status?.();
         const connectedIdentity = connection?.connected && connection.originIdentity
@@ -141,34 +141,64 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
         record.available = false;
         if (origin?.provider !== 'codex' || !origin.threadId) {
             record.message = 'This PM task has no linked Codex conversation. Associate the original conversation in Connections first.';
-        } else if (!origin.accountId || !origin.hostId) {
-            record.message = 'The saved association has no complete native account and host identity. Associate this conversation with the intended connection in Connections first.';
+        } else if (!origin.hostId) {
+            record.message = 'The saved association has no Codex host. Associate this conversation with the intended host in Connections first.';
         } else if (!connection?.connected) {
             record.message = 'Connect to the intended Codex account and host in Connections, then review this action again.';
         } else if (connectedIdentity?.connectionId === undefined || connectedIdentity?.connectionId === null
             || !connectedIdentity.originIdentity.accountId || !connectedIdentity.originIdentity.hostId) {
             record.message = 'Codex has not supplied the current account and host identity. Review this action after the connection identity is available.';
-        } else if (!sameOrigin(origin, connectedIdentity.originIdentity)) {
-            record.message = 'This task is associated with a different Codex account or host. Connect to its recorded destination, then review the action again.';
-        } else if (!connection.capabilities?.[method] || typeof bridge?.[method] !== 'function') {
+        } else if (!sameHost(origin, connectedIdentity.originIdentity)) {
+            record.message = 'This task is associated with a different Codex host. Connect to its recorded host, then review the action again.';
+        } else if (!connection.capabilities?.[method] || typeof bridge?.[method] !== 'function'
+            || !connection.capabilities?.readThread || typeof bridge?.readThread !== 'function') {
             record.message = 'The current Codex connection does not provide this action.';
         } else {
-            record.native.identity = connectedIdentity;
-            record.available = true;
+            let selected;
+            try {
+                selected = await bridge.readThread(
+                    {threadId: record.native.threadId, signal}
+                );
+            } catch (error) {
+                signal?.throwIfAborted();
+                if (error?.name === 'AbortError') {
+                    throw error;
+                }
+                console.error('Arcane PM could not read the selected Codex conversation for cleanup review.', error);
+                record.message = 'Codex could not read the selected conversation. Review it again when available; no cleanup action was sent.';
+                return record;
+            }
+            signal?.throwIfAborted();
+            const currentConnection = bridge.status();
+            if (selected?.status === 'available'
+                && selected.threadId === record.native.threadId
+                && selected.thread?.id === record.native.threadId
+                && currentConnection.connected
+                && sameIdentity(selected.identity, connectedIdentity)
+                && sameIdentity(
+                    selected.identity,
+                    {connectionId: currentConnection.connectionId, originIdentity: currentConnection.originIdentity}
+                )) {
+                record.native.identity = selected.identity;
+                record.available = true;
+            } else {
+                record.message = 'The selected conversation or connection is unavailable or changed during review. Review the intended conversation again before acting.';
+            }
         }
         return record;
     }
 
-    function sameOrigin(left, right) {
+    function sameHost(left, right) {
         return left?.provider === 'codex' && right?.provider === 'codex'
-            && Boolean(left.accountId) && left.accountId === right.accountId
             && Boolean(left.hostId) && left.hostId === right.hostId;
     }
 
     function sameIdentity(left, right) {
         return left?.connectionId !== undefined && left?.connectionId !== null
             && left.connectionId === right?.connectionId
-            && sameOrigin(left.originIdentity, right.originIdentity);
+            && sameHost(left.originIdentity, right.originIdentity)
+            && Boolean(left.originIdentity.accountId)
+            && left.originIdentity.accountId === right.originIdentity.accountId;
     }
 
     function subscribeNative(listener, options) {
@@ -181,13 +211,14 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
     async function reviewResource(targetId, projectId, signal) {
         const resources = disposableResources?.list
             ? await disposableResources.list(
-                {projectId, signal}
+                projectId === null ? {signal} : {projectId, signal}
             )
             : [];
         signal?.throwIfAborted();
         const resource = resources.find(
             function findSelectedResource(candidate) {
-                return candidate.id === targetId && candidate.projectId === projectId;
+                return candidate.id === targetId
+                    && (projectId === null || candidate.projectId === projectId);
             }
         );
         const available = Boolean(
@@ -201,7 +232,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
         return {
             action: 'dispose-resource',
             targetId,
-            projectId,
+            projectId: resource ? resource.projectId : projectId,
             title: resource?.title || 'App resource unavailable',
             target: resource || null,
             available,
@@ -228,9 +259,19 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
         }
 
         const {action, targetId} = current;
+        if (current.projectId !== selectedReview.projectId) {
+            return {
+                status: 'target-changed',
+                action,
+                targetId,
+                projectId: current.projectId,
+                review: {...current, available: false},
+                message: 'This target moved to another project after review. Review its current project before acting.'
+            };
+        }
         if (current.native) {
             if (selectedReview.native?.threadId !== current.native.threadId
-                || !sameOrigin(selectedReview.native?.origin, current.native.origin)
+                || !sameHost(selectedReview.native?.origin, current.native.origin)
                 || !sameIdentity(selectedReview.native?.identity, current.native.identity)) {
                 return {
                     status: 'target-changed',

@@ -24,6 +24,46 @@ export function createWorkflowService({pmData, getStorage}) {
         const [guide, keys] = await Promise.all(
             [storage.get('pm_project_guides', fileKey(projectId), true), storage.getAllKeys('pm_workflow_events')]
         );
+        const records = await readWorkflowRecords(storage, keys, taskIds, signal);
+        signal?.throwIfAborted();
+        const byTask = new Map();
+        for (const record of records) {
+            if (!byTask.has(record.taskId)) byTask.set(record.taskId, []);
+            byTask.get(record.taskId).push(record);
+        }
+
+        return {
+            project,
+            guide: guide ? structuredClone(guide) : null,
+            tasks: tasks.map(
+                function includeProjectTaskWorkflow(task) {
+                    return includeTaskWorkflow(task, byTask.get(task.id) || []);
+                }
+            )
+        };
+    }
+
+    async function getTaskOverview(taskId, {signal} = {}) {
+        requireText(taskId, 'Task', true);
+        signal?.throwIfAborted();
+        const [task, storage] = await Promise.all(
+            [pmData.getTask(taskId), getStorage()]
+        );
+        signal?.throwIfAborted();
+        if (!task) throw workflowError('PM_WORKFLOW_NOT_FOUND', 'This task is no longer available.');
+
+        const keys = await storage.getAllKeys('pm_workflow_events');
+        const records = await readWorkflowRecords(
+            storage,
+            keys,
+            new Set([encodeURIComponent(taskId)]),
+            signal
+        );
+        signal?.throwIfAborted();
+        return includeTaskWorkflow(task, records);
+    }
+
+    async function readWorkflowRecords(storage, keys, taskIds, signal) {
         const selectedKeys = keys.filter(
             function belongsToSelectedTask(key) {
                 return taskIds.has(key.split('.')[0]);
@@ -53,7 +93,7 @@ export function createWorkflowService({pmData, getStorage}) {
         await Promise.all(readers);
         signal?.throwIfAborted();
         if (failures.length) {
-            const error = new AggregateError(failures.map(errorOf), 'Some project workflow records could not be read.');
+            const error = new AggregateError(failures.map(errorOf), 'Some workflow records could not be read.');
             error.code = 'PM_WORKFLOW_READ';
             error.records = records;
             error.failures = failures;
@@ -61,40 +101,7 @@ export function createWorkflowService({pmData, getStorage}) {
         }
 
         records.sort(orderRecordedEvents);
-        const byTask = new Map();
-        for (const record of records) {
-            if (!byTask.has(record.taskId)) byTask.set(record.taskId, []);
-            byTask.get(record.taskId).push(record);
-        }
-
-        return {
-            project,
-            guide: guide ? structuredClone(guide) : null,
-            tasks: tasks.map(
-                function includeTaskWorkflow(task) {
-                    const history = byTask.get(task.id) || [];
-                    const observations = history.filter(isObservation);
-                    const resolutions = new Map();
-                    for (const record of history) {
-                        if (record.kind === 'attention-resolved') resolutions.set(record.attentionId, record);
-                    }
-                    const attentionRequests = history.filter(isAttentionRequest).map(
-                        function includeAttentionResolution(request) {
-                            return {request, resolution: resolutions.get(request.id) || null};
-                        }
-                    );
-                    return {
-                        task,
-                        workflow: {
-                            history,
-                            observations,
-                            attentionRequests,
-                            latestObservation: observations.at(-1) || null
-                        }
-                    };
-                }
-            )
-        };
+        return records;
     }
 
     async function assign(taskId, assignment, {signal} = {}) {
@@ -285,7 +292,29 @@ export function createWorkflowService({pmData, getStorage}) {
         events.dispose();
     }
 
-    return {getProjectOverview, assign, recordObservation, requestAttention, resolveAttention, setNextAction, setGuide, subscribe, dispose};
+    return {getProjectOverview, getTaskOverview, assign, recordObservation, requestAttention, resolveAttention, setNextAction, setGuide, subscribe, dispose};
+}
+
+function includeTaskWorkflow(task, history) {
+    const observations = history.filter(isObservation);
+    const resolutions = new Map();
+    for (const record of history) {
+        if (record.kind === 'attention-resolved') resolutions.set(record.attentionId, record);
+    }
+    const attentionRequests = history.filter(isAttentionRequest).map(
+        function includeAttentionResolution(request) {
+            return {request, resolution: resolutions.get(request.id) || null};
+        }
+    );
+    return {
+        task,
+        workflow: {
+            history,
+            observations,
+            attentionRequests,
+            latestObservation: observations.at(-1) || null
+        }
+    };
 }
 
 function requireText(value, label, nonblank = false) {
