@@ -1,11 +1,14 @@
 /** Observe selected tasks on this Codex server; saved history is not live state. */
-export function observeCodexTaskActivity(bridge, listener, {threadIds = [], signal, emitCurrent = true} = {}) {
+export function observeCodexTaskActivity(bridge, listener, {threadIds = [], signal, emitCurrent = true, incremental = false} = {}) {
     const observerId = crypto.randomUUID();
     const lifetime = new AbortController();
     const subscriptions = [];
     const seedQueue = new Map();
+    const deferredSeeds = new Set();
+    const connectionQueue = [];
     const seedConcurrency = 4;
     let activeSeedReads = 0;
+    let reconcilingConnection = false;
     let connectionLifetime = new AbortController();
     let connection = describeConnection({});
     let records = new Map();
@@ -92,10 +95,11 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         return 'Task activity was observed on this connection; its current native status is unavailable.';
     }
 
-    function publish() {
+    function publish(changedRecords, removedThreadIds = []) {
         if (disposed || (initializing && !emitCurrent)) return;
+        const isIncremental = incremental && changedRecords !== undefined;
         const threads = [];
-        for (const record of records.values()) {
+        for (const record of isIncremental ? changedRecords : records.values()) {
             const availability = !connection.connected ? 'disconnected' : record.live ? 'observed' : 'unobserved';
             threads.push({
                 observationId: record.observationId, observationRevision: record.version,
@@ -112,6 +116,10 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             observerId, revision: ++revision, observedAt: new Date().toISOString(),
             connection: structuredClone(connection), threads
         };
+        if (incremental) {
+            snapshot.incremental = isIncremental;
+            snapshot.removedThreadIds = isIncremental ? removedThreadIds : [];
+        }
         try {
             listener(snapshot);
         } catch (error) {
@@ -139,7 +147,8 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
     }
 
     function reconcilePending(pendingRequests, selectedRecords = records.values()) {
-        if (!canObserve()) return;
+        const changedRecords = [];
+        if (!canObserve()) return changedRecords;
         const receivedAt = new Date().toISOString();
         const updates = new Map();
         const requestOwners = new Map();
@@ -164,11 +173,30 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             record.observedAt = receivedAt;
             record.version++;
             if (pending.size) markLive(record);
+            changedRecords.push(record);
         }
+        return changedRecords;
     }
 
     function observeConnection(state) {
         if (disposed) return;
+        connectionQueue.push(state);
+        if (reconcilingConnection) return;
+        reconcilingConnection = true;
+        try {
+            // Preserve every reentrant state in order; retirement and rebind
+            // are one synchronous transition before the next state applies.
+            while (!disposed && connectionQueue.length) applyConnection(connectionQueue.shift());
+        } finally {
+            reconcilingConnection = false;
+            for (const record of deferredSeeds) {
+                deferredSeeds.delete(record);
+                seed(record);
+            }
+        }
+    }
+
+    function applyConnection(state) {
         const next = describeConnection(state);
         const changed = next.connected !== connection.connected
             || next.connectionId !== connection.connectionId
@@ -181,7 +209,8 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             seedQueue.clear();
             connectionLifetime = new AbortController();
             const observedAt = state.observedAt ?? new Date().toISOString();
-            for (const record of records.values()) {
+            const retiring = Array.from(records.values());
+            for (const record of retiring) {
                 record.version++;
                 record.seeded = false;
                 record.status = null;
@@ -194,9 +223,10 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             }
             // Consumers must retire the old association before a new identity owns a row.
             if (previousIdentity?.accountId != null && canObserve()) publish();
-            if (disposed || connection !== next) return;
+            if (disposed) return;
             if (canObserve()) {
-                for (const record of records.values()) {
+                for (const record of retiring) {
+                    if (records.get(record.threadId) !== record) continue;
                     record.version++;
                     record.origin = originFor(record.threadId);
                     record.observedAt = null;
@@ -204,14 +234,19 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
                 }
             }
         }
-        reconcilePending(state.pendingRequests);
-        publish();
-        if (disposed || connection !== next || !canObserve()) return;
-        for (const record of records.values()) seed(record);
+        const changedRecords = reconcilePending(state.pendingRequests);
+        publish(changed || initializing ? undefined : changedRecords);
+        if (changed || initializing) {
+            for (const record of records.values()) seed(record);
+        }
     }
 
     function seed(record) {
         if (disposed || record.seeded || records.get(record.threadId) !== record || !canObserve()) return;
+        if (reconcilingConnection) {
+            deferredSeeds.add(record);
+            return;
+        }
         record.seeded = true;
         const version = record.version;
         const identity = {connectionId: connection.connectionId, originIdentity: {...connection.originIdentity}};
@@ -267,7 +302,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             } else {
                 applyStatus(record, result.thread.status, observedAt);
             }
-            publish();
+            publish([record]);
         } catch (error) {
             if (readSignal.aborted) return;
             console.error('Arcane PM Codex task activity could not be read', {threadId: record.threadId, identity, error});
@@ -276,7 +311,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             record.live = false;
             record.observedAt = new Date().toISOString();
             record.version++;
-            publish();
+            publish([record]);
         }
     }
 
@@ -330,7 +365,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
                 break;
             default: return;
         }
-        publish();
+        publish([record]);
     }
 
     function observeRequest(frame) {
@@ -341,7 +376,33 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         record.observedAt = new Date().toISOString();
         record.version++;
         markLive(record);
-        publish();
+        publish([record]);
+    }
+
+    function updateThreadIds({add = [], remove = []} = {}) {
+        if (disposed) return;
+        const removedThreadIds = [];
+        const added = [];
+        for (const threadId of remove) {
+            const record = records.get(threadId);
+            if (!record) continue;
+            records.delete(threadId);
+            seedQueue.delete(record);
+            deferredSeeds.delete(record);
+            record.lifetime.abort();
+            removedThreadIds.push(threadId);
+        }
+        for (const threadId of add) {
+            if (records.has(threadId)) continue;
+            const record = newRecord(threadId);
+            if (canObserve()) record.reason = 'awaiting-status';
+            records.set(threadId, record);
+            added.push(record);
+        }
+        if (!added.length && !removedThreadIds.length) return;
+        reconcilePending(bridge.status().pendingRequests, added);
+        publish(added, removedThreadIds);
+        for (const record of added) seed(record);
     }
 
     function setThreadIds(ids) {
@@ -363,6 +424,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         for (const record of records.values()) {
             if (!next.has(record.threadId)) {
                 seedQueue.delete(record);
+                deferredSeeds.delete(record);
                 record.lifetime.abort();
             }
         }
@@ -377,6 +439,8 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         disposed = true;
         signal?.removeEventListener('abort', dispose);
         seedQueue.clear();
+        deferredSeeds.clear();
+        connectionQueue.length = 0;
         lifetime.abort();
         connectionLifetime.abort();
         for (const record of records.values()) record.lifetime.abort();
@@ -393,5 +457,5 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         observeConnection(bridge.status());
         initializing = false;
     }
-    return {setThreadIds, dispose};
+    return {setThreadIds, updateThreadIds, dispose};
 }

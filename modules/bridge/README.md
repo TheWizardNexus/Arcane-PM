@@ -47,7 +47,7 @@ initial status read and subscriptions; disposal does not close the shared client
 | `subscribe(listener, {signal, emitCurrent:true})` | Observes connection state through the shared SDK event owner, with current state replay. Returns unsubscribe. |
 | `observeNotifications(listener, {signal})` | Complete native notifications, transient and outside durable chat history. |
 | `observeRequests(listener, {signal})` | Actual pending native approval/input requests; never automatically approved. |
-| `observeTaskActivity(listener, {threadIds:[], signal, emitCurrent:true})` | Connection-scoped activity snapshots for selected thread IDs. Returns `{setThreadIds,dispose}`; unchanged selections do not repeat reads. |
+| `observeTaskActivity(listener, {threadIds:[], signal, emitCurrent:true, incremental:false})` | Connection-scoped activity for selected thread IDs. Returns `{setThreadIds,updateThreadIds,dispose}`; unchanged selections do not repeat reads. Full snapshots remain the default; incremental delivery is opt-in. |
 | `listThreads({cwd, archived, signal})` | All pages for the selected archive state and directory filter. Original thread records remain unchanged. |
 | `listProjects({archived, signal})` | Observed working-folder associations from threads, with native project IDs when present. This is not a saved-project registry. |
 | `discoverWorkspace({threadId?, archived?, cwd?, signal})` | Unchanged selected `readThread` or `listThreads` result in `threads`, alongside the complete saved `projectCatalog`. Data owns mapping. |
@@ -154,6 +154,34 @@ Each row also carries transient `observationId` and `observationRevision`.
 Unchanged replay keeps these values; removing and selecting a thread again
 starts a new row lifetime. Consumers use them per exact origin/task to avoid
 repeating unchanged projections, without comparing raw native status data.
+
+With `incremental:true`, callbacks also carry `incremental` and
+`removedThreadIds`. Initial replay, connection identity/availability changes and
+`setThreadIds(ids)` emit full snapshots with `incremental:false`; replace the
+selected row collection with their complete `threads`. Per-thread native
+events, seed results and `updateThreadIds({add:[],remove:[]})` emit
+`incremental:true`: remove `removedThreadIds` first, then replace each supplied
+row by its `threadId`. Each supplied row retains its complete content and exact
+origin. A delta's omitted rows remain unchanged; they are not removed or
+unobserved. Account retirement still emits all previous-origin loss rows
+before publishing the new identity's rows. The same observer revision orders
+both full and incremental callbacks.
+Other connection updates carry only changed pending-request rows, or an empty
+incremental row list when only connection metadata changed. A listener may
+change selection during the retirement callback; new seeds begin after the
+synchronous connection rebind so their first read uses the resulting identity.
+Reentrant connection states retain their arrival order and apply after that
+transition. `emitCurrent:false` suppresses the initial full snapshot; the first
+later callback may be incremental.
+
+`setThreadIds` replaces the full selection and preserves existing row lifetimes
+for retained IDs. `updateThreadIds` touches only its supplied IDs, cancels reads
+for removed rows and seeds only newly added rows. Repeated additions or removals
+have no effect. Removal is applied before addition; an ID in both lists starts
+a new row lifetime and appears in both the removal list and complete changed
+rows. Default full-snapshot subscribers can use either selection method.
+Incremental delivery avoids cloning the complete selected collection for each
+of its seed results or native events; metadata read concurrency remains four.
 
 `connection.originIdentity` is `{provider:'codex',accountId,hostId}` when native
 `account/read` supplies its experimental `workspaceRouting.chatgptAccountId`.
