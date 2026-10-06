@@ -284,6 +284,32 @@ export function mountLocalAIView(container, {
             error?.name === 'AbortError' ? 'cancelled' : 'error');
     }
 
+    function decisionModelPresentation(snapshot) {
+        const selection = snapshot?.selection;
+        const current = snapshot?.model;
+        const load = snapshot?.load;
+        // The SDK keeps a retiring activation here while its successor is pending.
+        const model = selection && current
+            && current.family === selection.family && current.model === selection.model
+            && current.revision === selection.revision && current.dtype === selection.dtype
+            ? current : null;
+        const pending = Boolean(current?.pendingActivation);
+        const unloading = load?.status === 'unloading' || ['unloading', 'disposing'].includes(current?.state);
+        const changing = Boolean(snapshot?.selecting || (pending && model?.state !== 'loading')
+            || (!model && ['loading', 'unloading', 'disposing'].includes(current?.state)));
+        return {
+            model,
+            ready: model?.loaded === true && model.state === 'ready' && !pending,
+            changing,
+            unloading,
+            loading: Boolean((load?.busy && !unloading) || model?.state === 'loading'),
+            failed: load?.status === 'error' || (!pending && model?.state === 'error'),
+            // The successor keeps pendingActivation while its own loading progresses.
+            progress: load?.status === 'preparing' ? load.progress
+                : !pending || model?.state === 'loading' ? model?.progress : null
+        };
+    }
+
     function updateControls() {
         const hasTask = Boolean(currentTask());
         const selectedModel = modelState.model;
@@ -303,13 +329,11 @@ export function mountLocalAIView(container, {
         controls.task.disabled = Boolean(preparation || faceOperation || decisionOperation || selectingFace || savingNote);
         controls['save-note'].disabled = savingNote;
         controls['use-response'].disabled = Boolean(preparation) || !controls.response.textContent;
-        const decisionModel = decisionState?.model;
+        const decision = decisionModelPresentation(decisionState);
         const decisionAvailable = Boolean(decisions && decisionState?.available && !decisionState.closed);
-        const decisionLoading = decisionModelBusy || decisionState?.load?.busy
-            || decisionState?.selecting || ['loading', 'unloading', 'disposing'].includes(decisionModel?.state);
-        const decisionReady = decisionModel?.loaded && decisionModel.state === 'ready';
-        controls['load-decisions'].disabled = !decisionAvailable || decisionLoading || decisionReady;
-        controls['unload-decisions'].disabled = !decisionAvailable || decisionLoading || !decisionModel?.loaded;
+        const decisionLoading = decisionModelBusy || decision.loading || decision.unloading || decision.changing;
+        controls['load-decisions'].disabled = !decisionAvailable || decisionLoading || decision.ready;
+        controls['unload-decisions'].disabled = !decisionAvailable || decisionLoading || !decision.model?.loaded;
         controls['decision-model'].disabled = !decisions?.select || decisionLoading || Boolean(decisionOperation);
         controls['compare-decisions'].disabled = !decisionAvailable || Boolean(decisionOperation)
             || decisionState?.selecting || decisionState?.status === 'Thinking';
@@ -687,7 +711,7 @@ export function mountLocalAIView(container, {
         if (pageSignal.aborted) return;
         const wasThinking = decisionState?.status === 'Thinking';
         decisionState = snapshot;
-        const model = snapshot?.model;
+        const decision = decisionModelPresentation(snapshot);
         const load = snapshot?.load;
         const choices = snapshot?.choices ?? decisions?.choices?.() ?? [];
         const prior = snapshot?.selection?.id ?? controls['decision-model'].value;
@@ -695,25 +719,23 @@ export function mountLocalAIView(container, {
         controls['decision-model'].replaceChildren();
         for (const choice of choices) controls['decision-model'].append(new Option(choice.name ?? choice.id, choice.id));
         controls['decision-model'].value = prior;
-        const failed = Boolean(load?.error || model?.error);
         const message = !decisions || !snapshot?.available
             ? 'Next-step comparison needs a connected local runtime. Your preparation note remains available.'
-            : load?.busy
-                ? load.status === 'preparing' ? 'Preparing the local comparison model…' : 'Loading the local comparison model…'
-                : failed
-                    ? 'The comparison model is unavailable. Try loading it again.'
-                    : model?.loaded && model.state === 'ready'
-                        ? 'Local comparison model ready.'
-                        : model?.state === 'unloading' || model?.state === 'disposing'
-                            ? 'Unloading the comparison model…'
-                            : 'Load the local comparison model when you need it. Its download is stored for reuse.';
-        status(controls['decision-model-status'], message, failed ? 'error' : load?.busy ? 'working' : 'idle');
-        decisionProgress.update({active: Boolean(load?.busy), progress: load?.progress ?? model?.progress});
+            : decision.changing ? 'Changing the local comparison model…'
+                : decision.unloading ? 'Unloading the comparison model…'
+                    : decision.loading
+                        ? load?.status === 'preparing' ? 'Preparing the local comparison model…' : 'Loading the local comparison model…'
+                        : decision.failed ? 'The comparison model is unavailable. Try loading it again.'
+                            : decision.ready ? 'Local comparison model ready.'
+                                : 'Load the local comparison model when you need it. Its download is stored for reuse.';
+        const working = decision.changing || decision.unloading || decision.loading;
+        status(controls['decision-model-status'], message, working ? 'working' : decision.failed ? 'error' : 'idle');
+        decisionProgress.update({active: decision.loading, progress: decision.progress});
         if (decisionOperation) {
-            const progress = snapshot.phase === 'waiting' && !(model?.loaded && model.state === 'ready')
-                ? load?.busy || model?.state === 'loading'
-                    ? 'Thinking · waiting for the comparison model to finish loading.'
-                    : 'Thinking · load the comparison model to continue.'
+            const progress = snapshot.phase === 'waiting' && !decision.ready
+                ? decision.changing || decision.unloading ? 'Thinking · waiting for the comparison model to change.'
+                    : decision.loading ? 'Thinking · waiting for the comparison model to finish loading.'
+                        : 'Thinking · load the comparison model to continue.'
                 : snapshot.message;
             status(controls['decision-status'], progress, snapshot.status);
         } else if (snapshot?.status === 'Thinking') {

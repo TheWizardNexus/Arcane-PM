@@ -13,19 +13,47 @@ const DECISION_CHOICES = [
     },
     {
         id: 'laya-native-fp32', name: 'Laya · native FP32', kind: 'native', family: 'laya',
-        model: 'onnx-community/laya-typed-decisions-ONNX', revision: 'main', dtype: 'fp32'
+        model: 'onnx-community/laya-typed-decisions-ONNX', revision: 'main', dtype: 'fp32',
+        source: {
+            id: 'onnx-community/laya-typed-decisions-ONNX',
+            files: [
+                {name: 'model.onnx', path: 'onnx/model.onnx', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx'},
+                {name: 'model.onnx_data', path: 'onnx/model.onnx_data', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx_data'},
+                {name: 'tokenizer.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer.json'},
+                {name: 'tokenizer_config.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer_config.json'}
+            ]
+        },
+        resourcePaths: {model: 'onnx/model.onnx', tokenizer: 'tokenizer.json', tokenizerConfig: 'tokenizer_config.json'}
+    },
+    {
+        id: 'laya-native-fp16', name: 'Laya · native FP16', kind: 'native', family: 'laya',
+        model: 'onnx-community/laya-typed-decisions-ONNX', revision: 'main', dtype: 'fp16',
+        source: {
+            id: 'onnx-community/laya-typed-decisions-ONNX',
+            files: [
+                {name: 'model_fp16.onnx', path: 'onnx/model_fp16.onnx', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model_fp16.onnx'},
+                {name: 'model_fp16.onnx_data', path: 'onnx/model_fp16.onnx_data', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model_fp16.onnx_data'},
+                {name: 'tokenizer.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer.json'},
+                {name: 'tokenizer_config.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer_config.json'}
+            ]
+        },
+        resourcePaths: {model: 'onnx/model_fp16.onnx', tokenizer: 'tokenizer.json', tokenizerConfig: 'tokenizer_config.json'}
+    },
+    {
+        id: 'julia1-native-fp32', name: 'Julia 1 · native FP32', kind: 'native', family: 'julia',
+        model: 'SupersonicLabs/Julia-1-ONNX', revision: 'main', dtype: 'fp32',
+        source: {
+            id: 'SupersonicLabs/Julia-1-ONNX',
+            files: [
+                {name: 'model.onnx', url: 'https://huggingface.co/SupersonicLabs/Julia-1-ONNX/resolve/main/model.onnx'},
+                {name: 'model.onnx.data', url: 'https://huggingface.co/SupersonicLabs/Julia-1-ONNX/resolve/main/model.onnx.data'},
+                {name: 'tokenizer.json', url: 'https://huggingface.co/SupersonicLabs/Julia-1-ONNX/resolve/main/tokenizer.json'},
+                {name: 'tokenizer_config.json', url: 'https://huggingface.co/SupersonicLabs/Julia-1-ONNX/resolve/main/tokenizer_config.json'}
+            ]
+        },
+        resourcePaths: {model: 'model.onnx', tokenizer: 'tokenizer.json', tokenizerConfig: 'tokenizer_config.json'}
     }
 ];
-
-const LAYA_SOURCE = {
-    id: 'onnx-community/laya-typed-decisions-ONNX',
-    files: [
-        {name: 'model.onnx', path: 'onnx/model.onnx', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx'},
-        {name: 'model.onnx_data', path: 'onnx/model.onnx_data', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx_data'},
-        {name: 'tokenizer.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer.json'},
-        {name: 'tokenizer_config.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer_config.json'}
-    ]
-};
 
 function decisionError(code, message, cause) {
     const error = new Error(message, cause === undefined ? undefined : {cause});
@@ -114,8 +142,9 @@ export function createPMDecisionController({modelServices, signal, client} = {})
             && snapshot.revision === choice.revision && snapshot.dtype === choice.dtype;
     }
 
-    function ready(snapshot) {
-        return matchesSelection(snapshot) && snapshot.state === 'ready' && snapshot.loaded === true;
+    function ready(snapshot, choice = selectedChoice) {
+        return matchesSelection(snapshot, choice) && snapshot.state === 'ready'
+            && snapshot.loaded === true && !snapshot.pendingActivation;
     }
 
     function acceptModel(selected, snapshot) {
@@ -256,6 +285,7 @@ export function createPMDecisionController({modelServices, signal, client} = {})
         if (loading || releasing) throw decisionError('PM_DECISION_LOADING', 'The decision model is already changing.');
         requestSignal?.throwIfAborted();
         if (ready(model)) return Promise.resolve(model);
+        const choice = selectedChoice;
         const controller = new AbortController();
         const operation = {
             controller, signal: AbortSignal.any([selected.signal, controller.signal, ...(requestSignal ? [requestSignal] : [])]),
@@ -282,7 +312,7 @@ export function createPMDecisionController({modelServices, signal, client} = {})
                 });
                 operation.signal.throwIfAborted();
                 projection = await modelServices.prepareModelAssets({
-                    source: LAYA_SOURCE, workingDirectory: '.arcane/model-working', offline, signal: operation.signal,
+                    source: choice.source, workingDirectory: '.arcane/model-working', offline, signal: operation.signal,
                     onProgress(progress) {
                         if (operation.signal.aborted || closed) return;
                         loadState = {...loadState, progress};
@@ -293,7 +323,10 @@ export function createPMDecisionController({modelServices, signal, client} = {})
                 loadState = {...loadState, status: 'loading'};
                 publish();
                 selected.ownsActivation = true;
-                result = await selected.client.invoke('pm.decisions.load', {assetProjectionId: projection.id}, {
+                result = await selected.client.invoke('pm.decisions.load', {
+                    family: choice.family, model: choice.model, revision: choice.revision, dtype: choice.dtype,
+                    assetProjectionId: projection.id, resourcePaths: choice.resourcePaths
+                }, {
                     signal: operation.signal, timeoutMs: 0
                 });
                 operation.signal.throwIfAborted();
@@ -438,7 +471,7 @@ export function createPMDecisionController({modelServices, signal, client} = {})
             publish();
             return outcomes[0].value;
         });
-        function released() { releasing = null; }
+        function released() { releasing = null; publish(); }
         releasing.then(released, released);
         releasing.catch(report);
         return releasing;
@@ -533,16 +566,23 @@ export function createPMDecisionController({modelServices, signal, client} = {})
                     }
                     if (!snapshot.available) { controller.abort(); return; }
                     if (!selectedModel) return;
+                    // Native status can still describe the retiring model before this selection loads.
+                    if (!matchesSelection(selectedModel, choice) || selectedModel.pendingActivation) {
+                        if (started) controller.abort();
+                        return;
+                    }
                     if (selectedModel.state === 'error') {
+                        // Wait for the owned retry's result instead of its prior activation's error.
+                        if (!started && ['preparing', 'loading'].includes(snapshot.load.status)) return;
                         const error = decisionError('PM_DECISION_MODEL_ERROR', 'The local decision model is unavailable.', selectedModel.error);
                         diagnostic({type: 'model-error', error, model: selectedModel});
                         if (started) controller.abort(error);
                         else reject(error);
                         return;
                     }
-                    if (!matchesSelection(selectedModel) || ['unloading', 'disposing', 'disposed'].includes(selectedModel.state)
-                        || (started && !ready(selectedModel))) { controller.abort(); return; }
-                    if (ready(selectedModel) && !started) { started = true; resolve(); }
+                    if (['unloading', 'disposing', 'disposed'].includes(selectedModel.state)
+                        || (started && !ready(selectedModel, choice))) { controller.abort(); return; }
+                    if (ready(selectedModel, choice) && !started) { started = true; resolve(); }
                 });
                 operation.stopModel = function stopModelObservation() {
                     stop();

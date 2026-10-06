@@ -458,9 +458,10 @@ conversation, choose tools for user messages, or change task status.
 - `current()` and replaying `subscribe(listener, {signal})` expose operation,
   model, selection, available choices and loading state without retaining
   comparison inputs or results.
-- `choices()` returns Laya FP16 (`laya-fp16`, the initial selection), Julia 1
-  FP32 (`julia1-fp32`) and the preserved native Laya FP32
-  (`laya-native-fp32`). `select(choiceId, {signal})` cancels and joins work on
+- `choices()` returns browser Laya FP16 (`laya-fp16`, the initial selection),
+  browser Julia 1 FP32 (`julia1-fp32`), native Laya FP32
+  (`laya-native-fp32`), native Laya FP16 (`laya-native-fp16`) and native Julia 1
+  FP32 (`julia1-native-fp32`). `select(choiceId, {signal})` cancels and joins work on
   the previous selected model, releases its owned activation and changes the
   selection without downloading. Accepted selection cleanup belongs to the app.
 - `load({signal})` prepares the selected browser model through the published
@@ -468,7 +469,7 @@ conversation, choose tools for user messages, or change task status.
   progress passes through `current().load.progress` and model status unchanged.
   The browser API uses normal upstream acquisition and saved resources; an
   explicit `offline: true` request reports its missing cached-only capability.
-  Native Laya retains `load({offline = true, signal})` through the model store
+  Each native choice uses `load({offline = true, signal})` through the model store
   and temporary native projection owner. The view's Load action supplies
   `offline: false` to permit resource acquisition. Loading remains app-owned
   across page navigation.
@@ -476,6 +477,12 @@ conversation, choose tools for user messages, or change task status.
   synchronously, waits for this exact selected model to be ready and loaded,
   and forwards complete rows unchanged. It observes the selected model's
   lifecycle until the result commits, including Core for the native route.
+  Before inference, a snapshot for the previous native model or a pending
+  activation keeps the comparison waiting. Selected-load failures remain
+  observable; errors from a different retiring model do not become this
+  selection's failure. An accepted retry's preparation and loading also keep
+  waiting through its prior activation's error. Readiness loss or replacement after
+  inference starts cancels that request.
   The returned `{decisions, outputs}` is the complete SDK result. Native
   `runOptions` remain supported on the native route; browser selection reports
   that unsupported option instead of discarding it.
@@ -486,25 +493,41 @@ conversation, choose tools for user messages, or change task status.
   A supplied Core client remains fixed; otherwise the controller follows the
   published Core installation owner and cancels work when its client retires.
 
-The optional native route selects `onnx-community/laya-typed-decisions-ONNX`, revision `main`, dtype
-`fp32`, using the published members `onnx/model.onnx`, adjacent
-`onnx/model.onnx_data`, `tokenizer.json` and `tokenizer_config.json`. The SDK
-stores the complete assets in the shared DBOPFS model cache under single filenames
-`model.onnx`, `model.onnx_data`, `tokenizer.json` and `tokenizer_config.json`.
-PM separately retains the native `onnx/` companion paths in its source descriptor
-and supplies those paths with the complete stored files to the SDK projection.
-Its native owner retains the projection while loaded; the browser releases its preparation
-ownership after native loading settles. Cached-only preparation is the API
-default. A working offline comparison also requires the installed native
-runtime and those complete cached assets; source integration alone does not
-establish that runtime outcome.
+Native choices use the published `arcane-os@0.81.0` model-selection contract,
+with revision `main` and the following complete source layouts:
+
+| Native choice | Family and model | Dtype | Graph and adjacent companion |
+| --- | --- | --- | --- |
+| Laya FP32 | `laya`, `onnx-community/laya-typed-decisions-ONNX` | `fp32` | `onnx/model.onnx`, `onnx/model.onnx_data` |
+| Laya FP16 | `laya`, `onnx-community/laya-typed-decisions-ONNX` | `fp16` | `onnx/model_fp16.onnx`, `onnx/model_fp16.onnx_data` |
+| Julia 1 FP32 | `julia`, `SupersonicLabs/Julia-1-ONNX` | `fp32` | `model.onnx`, `model.onnx.data` |
+
+Each choice also includes its repository's root `tokenizer.json` and
+`tokenizer_config.json`. The SDK stores complete originals in the existing
+shared DBOPFS model cache under their single filenames. PM retains native
+companion paths in each cohesive choice descriptor and supplies those paths
+with the complete stored files to the SDK projection. The chosen graph,
+tokenizer and tokenizer configuration paths accompany the load request.
+
+The SDK native activation retains the projection through worker cleanup; the
+browser releases its preparation ownership after native loading settles.
+Cached-only preparation remains the API default. A working offline comparison
+also requires the installed native runtime and those complete cached assets.
+This source integration establishes neither native model execution nor a
+particular execution device; Foundation owns actual built-app acceptance.
 
 Foundation owns `native/decision-service.mjs` and its descriptor registration.
-The browser consumes `pm.decisions.status`, `pm.decisions.load` with the actual
-`assetProjectionId`, `pm.decisions.evaluate` with `{rows, runOptions?}`, and
+The browser consumes `pm.decisions.status`, `pm.decisions.load` with the complete
+`{family, model, revision, dtype, assetProjectionId, resourcePaths}` selection,
+`pm.decisions.evaluate` with `{rows, runOptions?}`, and
 `pm.decisions.unload`. It subscribes to `pm.decisions.state` before reading
 status after Core readiness. The native adapter delegates inference and complete
 RPC output encoding to the published `arcane-os/core/decisions` service.
+The adapter requires a prepared projection and preserves the earlier
+`{assetProjectionId}` call as Laya FP32 with its original graph and tokenizer
+mapping. It forwards complete SDK snapshots, including `pendingActivation`,
+and keeps evaluation waiting for an accepted load. SDK service cleanup owns
+the activation; the PM service's outer lifetime still disposes that owner.
 
 The view keeps state, question and each alternative in separate complete fields.
 It displays the actual recommended alternative and every returned option score.
@@ -517,6 +540,8 @@ notes and history.
 
 Public references: [native typed decisions](https://thewizardnexus.github.io/arcane-os-sdk/reference/native-decisions/)
 and [model assets](https://thewizardnexus.github.io/arcane-os-sdk/reference/model-assets/).
+The native selections above follow the
+[published 0.81.0 contract](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.81.0/docs/reference/native-decisions.md).
 This increment provides an explicit local comparison. The broader local
 conversation and agent outcomes retain their separate acceptance boundaries.
 
@@ -536,8 +561,9 @@ documented selections are `family: 'laya'` with
 `family: 'julia'` with `model: 'SupersonicLabs/Julia-1-ONNX'` (FP32).
 `revision` defaults to `main` and `device` to `webgpu`. A compatible alternative
 backend must be explicitly selected; the SDK does not substitute a backend,
-precision or model automatically. Julia FP32 here describes the browser graph
-selection, not an established native Core integration or execution result.
+precision or model automatically. These browser selections have their own
+activation and lifecycle; the native choices described above use the separate
+Core decision service. Execution evidence remains specific to the actual route.
 
 | PM operation | Applicable contract and current boundary |
 | --- | --- |
