@@ -39,9 +39,16 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
     let activeView = 'tasks';
     let snapshot = null;
     let selectedReview = null;
+    let nativeOutcome = null;
+    let nativeConnection = null;
+    let nativeConnectionRevision = 0;
+    let nativeReviewInvalidated = false;
     let pendingAction = false;
     let refreshRevision = 0;
     let reviewRevision = 0;
+    let inventoryLifetime = new AbortController();
+    let reviewLifetime = new AbortController();
+    let stopNative = null;
 
     for (const [view, label] of [['tasks', 'Tasks'], ['resources', 'App files'], ['working-files', 'Working files']]) {
         const button = document.createElement('button');
@@ -99,6 +106,8 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
     }
 
     function renderInventory() {
+        inventoryLifetime.abort();
+        inventoryLifetime = new AbortController();
         inventory.replaceChildren();
         if (!snapshot) {
             appendText(inventory, 'p', 'Loading the selected project…', 'arcane-state');
@@ -194,14 +203,20 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
             function requestTargetReview() {
                 void selectTarget(action, targetId);
             },
-            {signal: lifetime.signal}
+            {signal: inventoryLifetime.signal}
         );
         parent.append(button);
     }
 
     async function selectTarget(action, targetId) {
+        if (pendingAction || lifetime.signal.aborted) {
+            return;
+        }
         const revision = ++reviewRevision;
+        const connectionRevision = nativeConnectionRevision;
         selectedReview = null;
+        nativeOutcome = null;
+        nativeReviewInvalidated = false;
         renderReview();
         showStatus('Preparing the selected action for review…');
         try {
@@ -213,8 +228,9 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
                 return;
             }
             selectedReview = reviewed;
+            nativeReviewInvalidated = Boolean(reviewed.native && connectionRevision !== nativeConnectionRevision);
             renderReview();
-            showStatus('Review the selected target and its effect.');
+            showStatus(nativeReviewInvalidated ? 'The Codex connection changed during review. Review the intended target again.' : 'Review the selected target and its effect.');
         } catch (error) {
             if (revision === reviewRevision) {
                 reportFailure(error, 'The selected target could not be loaded. Refresh and review it again.');
@@ -223,6 +239,8 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
     }
 
     function renderReview() {
+        reviewLifetime.abort();
+        reviewLifetime = new AbortController();
         reviewPanel.replaceChildren();
         appendText(reviewPanel, 'h2', 'Selected action', 'arcane-section-heading');
         if (!selectedReview) {
@@ -242,7 +260,9 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
             const choices = [
                 [lifecycleAction, selectedReview.target.archivedAt ? 'Restore PM task' : 'Archive PM task'],
                 ['remove-task-record', 'Remove PM task record'],
-                ['delete-native-task', 'Native Codex conversation deletion']
+                ['archive-native-task', 'Archive Codex conversation'],
+                ['restore-native-task', 'Restore Codex conversation'],
+                ['delete-native-task', 'Delete Codex conversation']
             ];
             for (const [value, label] of choices) {
                 const option = document.createElement('option');
@@ -257,12 +277,15 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
                 function changeReviewedAction() {
                     void selectTarget(select.value, selectedReview.targetId);
                 },
-                {signal: lifetime.signal}
+                {signal: reviewLifetime.signal}
             );
             field.append(select);
             reviewPanel.append(field);
         }
         appendText(reviewPanel, 'p', selectedReview.effect);
+        if (selectedReview.native) {
+            renderNativeTarget(selectedReview.native);
+        }
         if (selectedReview.target?.location) {
             appendText(reviewPanel, 'p', selectedReview.target.location, 'pm-cleanup-original');
         }
@@ -275,28 +298,114 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
         if (selectedReview.message) {
             appendText(reviewPanel, 'p', selectedReview.message, 'arcane-form-note');
         }
-        if (selectedReview.action === 'delete-native-task' && selectedReview.nativeUrl) {
+        if (selectedReview.native && selectedReview.nativeUrl) {
             const link = document.createElement('a');
             link.href = selectedReview.nativeUrl;
             link.textContent = 'Open original conversation';
             link.className = 'arcane-button arcane-button--secondary';
             reviewPanel.append(link);
         }
+        if (nativeOutcome) {
+            const outcome = document.createElement('section');
+            outcome.className = 'pm-cleanup-outcome';
+            outcome.setAttribute('aria-label', 'Native action result');
+            appendText(outcome, 'h3', 'Native action result');
+            appendText(outcome, 'p', nativeOutcome.message, 'pm-cleanup-original');
+            if (nativeOutcome.observedAt) {
+                appendText(outcome, 'p', `Observed: ${nativeOutcome.observedAt}`, 'arcane-help pm-cleanup-original');
+            }
+            appendText(outcome, 'p', 'Review the target again before selecting another native operation.', 'arcane-help');
+            reviewPanel.append(outcome);
+        }
+        if (nativeReviewInvalidated && !pendingAction && !nativeOutcome) {
+            appendText(reviewPanel, 'p', 'The Codex connection changed after this review. Review the intended conversation again before acting.', 'arcane-form-note');
+        }
+        if (selectedReview.native && !pendingAction && (nativeReviewInvalidated || nativeOutcome || !selectedReview.available)) {
+            const reviewAgainButton = document.createElement('button');
+            reviewAgainButton.type = 'button';
+            reviewAgainButton.className = 'arcane-button arcane-button--secondary';
+            reviewAgainButton.textContent = 'Review this native action again';
+            reviewAgainButton.addEventListener(
+                'click',
+                function reviewNativeActionAgain() {
+                    void selectTarget(selectedReview.action, selectedReview.targetId);
+                },
+                {signal: reviewLifetime.signal}
+            );
+            reviewPanel.append(reviewAgainButton);
+        }
         const executeButton = document.createElement('button');
         executeButton.type = 'button';
         executeButton.className = 'arcane-button';
         executeButton.textContent = pendingAction ? 'Applying selected action…' : selectedReview.buttonLabel || 'Unavailable';
-        executeButton.disabled = pendingAction || !selectedReview.available;
+        executeButton.disabled = pendingAction || nativeReviewInvalidated || Boolean(nativeOutcome) || !selectedReview.available;
         executeButton.addEventListener(
             'click',
             applySelectedAction,
-            {signal: lifetime.signal}
+            {signal: reviewLifetime.signal}
         );
         reviewPanel.append(executeButton);
     }
 
+    function renderNativeTarget(native) {
+        appendText(reviewPanel, 'h3', 'Original Codex destination');
+        const target = document.createElement('dl');
+        target.className = 'pm-cleanup-identity';
+        appendIdentityValue(target, 'Conversation', native.threadId);
+        appendIdentityValue(target, 'Provider', native.origin?.provider);
+        appendIdentityValue(target, 'Account', native.origin?.accountId);
+        appendIdentityValue(target, 'Host', native.origin?.hostId);
+        reviewPanel.append(target);
+
+        appendText(reviewPanel, 'h3', 'Connection at review');
+        const connection = document.createElement('dl');
+        connection.className = 'pm-cleanup-identity';
+        const reviewedIdentity = native.identity || native.connectedIdentity;
+        appendIdentityValue(connection, 'Connection', reviewedIdentity?.connectionId);
+        appendIdentityValue(connection, 'Provider', reviewedIdentity?.originIdentity?.provider);
+        appendIdentityValue(connection, 'Account', reviewedIdentity?.originIdentity?.accountId);
+        appendIdentityValue(connection, 'Host', reviewedIdentity?.originIdentity?.hostId);
+        reviewPanel.append(connection);
+
+        if (nativeReviewInvalidated && !pendingAction && !nativeOutcome) {
+            appendText(reviewPanel, 'h3', 'Current connection');
+            const current = document.createElement('dl');
+            current.className = 'pm-cleanup-identity';
+            appendIdentityValue(current, 'State', nativeConnection?.connected ? 'Connected' : 'Disconnected');
+            appendIdentityValue(current, 'Connection', nativeConnection?.connectionId);
+            appendIdentityValue(current, 'Provider', nativeConnection?.originIdentity?.provider);
+            appendIdentityValue(current, 'Account', nativeConnection?.originIdentity?.accountId);
+            appendIdentityValue(current, 'Host', nativeConnection?.originIdentity?.hostId);
+            reviewPanel.append(current);
+        }
+        appendText(reviewPanel, 'p', native.descendants, 'pm-cleanup-original');
+    }
+
+    function appendIdentityValue(parent, label, value) {
+        appendText(parent, 'dt', label);
+        appendText(parent, 'dd', value === null || value === undefined || value === '' ? 'Unavailable' : String(value), 'pm-cleanup-original');
+    }
+
+    function observeNativeConnection(next) {
+        const changed = Boolean(nativeConnection?.connected) !== Boolean(next?.connected)
+            || nativeConnection?.connectionId !== next?.connectionId
+            || nativeConnection?.originIdentity?.provider !== next?.originIdentity?.provider
+            || nativeConnection?.originIdentity?.accountId !== next?.originIdentity?.accountId
+            || nativeConnection?.originIdentity?.hostId !== next?.originIdentity?.hostId;
+        nativeConnection = next;
+        if (!changed || lifetime.signal.aborted) {
+            return;
+        }
+        nativeConnectionRevision += 1;
+        if (selectedReview?.native && !pendingAction && !nativeOutcome) {
+            nativeReviewInvalidated = true;
+            renderReview();
+            showStatus('The Codex connection changed. Review the intended native target again.');
+        }
+    }
+
     async function applySelectedAction() {
-        if (pendingAction || !selectedReview?.available) {
+        if (pendingAction || nativeReviewInvalidated || nativeOutcome || !selectedReview?.available) {
             return;
         }
         const reviewToExecute = selectedReview;
@@ -310,10 +419,17 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
                 reviewToExecute,
                 {signal: lifetime.signal}
             );
+            if (result.error) {
+                console.error('Arcane PM native tidy-up operation failed.', result.error);
+            }
             if (lifetime.signal.aborted) {
                 return;
             }
-            if (result.status === 'completed' || result.status === 'unchanged') {
+            if (reviewToExecute.native) {
+                nativeOutcome = result;
+                selectedReview = {...reviewToExecute, available: false};
+                nativeReviewInvalidated = false;
+            } else if (result.status === 'completed' || result.status === 'unchanged') {
                 selectedReview = null;
                 await refresh();
             } else if (result.review) {
@@ -329,10 +445,17 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
         } catch (error) {
             reportFailure(error, 'The owner did not return a confirmed result. Refresh and review the current target before trying again.');
             if (!lifetime.signal.aborted) {
+                if (reviewToExecute.native) {
+                    nativeOutcome = {
+                        status: 'unconfirmed',
+                        error,
+                        message: 'The native outcome is unconfirmed. Inspect the original conversation and its descendants before another action.'
+                    };
+                }
                 selectedReview = {
                     ...reviewToExecute,
                     available: false,
-                    message: 'The result is unconfirmed. Refresh to inspect the current state before another action.'
+                    message: reviewToExecute.native ? '' : 'The result is unconfirmed. Refresh to inspect the current state before another action.'
                 };
             }
         } finally {
@@ -347,7 +470,9 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
 
     async function refresh() {
         const revision = ++refreshRevision;
-        showStatus('Loading the selected project…');
+        if (!pendingAction && !nativeOutcome) {
+            showStatus('Loading the selected project…');
+        }
         try {
             const loaded = await cleanup.listProjectTargets(
                 projectId,
@@ -363,21 +488,32 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
                 }
             }
             renderInventory();
-            showStatus(loaded.tasksError || loaded.resourcesError || loaded.projectError ? 'Some project information could not be loaded. Use Refresh to try again.' : 'Project information loaded.');
+            if (!pendingAction && !nativeOutcome) {
+                showStatus(loaded.tasksError || loaded.resourcesError || loaded.projectError ? 'Some project information could not be loaded. Use Refresh to try again.' : 'Project information loaded.');
+            }
         } catch (error) {
             reportFailure(error, 'Project information could not be loaded. Use Refresh to try again.');
         }
     }
 
     function refreshFromButton() {
-        selectedReview = null;
-        reviewRevision += 1;
+        if (pendingAction) {
+            return;
+        }
+        if (!nativeOutcome) {
+            selectedReview = null;
+            reviewRevision += 1;
+            nativeReviewInvalidated = false;
+        }
         renderReview();
         void refresh();
     }
 
     function dispose() {
         lifetime.abort();
+        inventoryLifetime.abort();
+        reviewLifetime.abort();
+        stopNative?.();
         signal?.removeEventListener('abort', dispose);
         root.remove();
     }
@@ -397,6 +533,10 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
     if (signal?.aborted) {
         dispose();
     } else {
+        stopNative = cleanup.subscribeNative(
+            observeNativeConnection,
+            {signal: lifetime.signal, emitCurrent: true}
+        );
         void refresh();
     }
 

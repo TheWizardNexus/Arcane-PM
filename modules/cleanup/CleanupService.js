@@ -28,7 +28,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
             tasksError: results[1].status === 'rejected' ? results[1].reason : null,
             resourcesError: results[2].status === 'rejected' ? results[2].reason : null,
             resourcesAvailable: Boolean(disposableResources?.list),
-            nativeDeleteAvailable: false
+            nativeDeleteAvailable: Boolean(bridge?.status?.().capabilities?.deleteThread)
         };
     }
 
@@ -78,25 +78,104 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
                 reviewRecord.effect = 'Remove this one PM task record, including its assignment and PM lifecycle fields. Related records remain with their owners.';
                 reviewRecord.buttonLabel = 'Remove this PM record';
                 break;
+            case 'archive-native-task':
+            case 'restore-native-task':
             case 'delete-native-task':
-                reviewRecord.owner = 'Codex';
-                reviewRecord.available = false;
-                reviewRecord.effect = 'Native Codex conversation deletion is a separate operation.';
-                reviewRecord.message = 'The connected bridge does not provide native conversation deletion. Open the original conversation to manage it in Codex.';
-                reviewRecord.retained = ['PM task record', 'Project working files', 'Selected sources and saved handoffs'];
-                if (task.origin?.provider === 'codex') {
-                    reviewRecord.nativeUrl = task.origin.url || (
-                        task.origin.threadId && bridge?.getThreadUrl
-                            ? bridge.getThreadUrl(task.origin.threadId)
-                            : null
-                    );
-                }
-                break;
+                return reviewNative(reviewRecord);
             default:
                 throw new TypeError(`Unknown PM tidy-up action: ${action}`);
         }
 
         return reviewRecord;
+    }
+
+    function reviewNative(record) {
+        const origin = record.target.origin;
+        const connection = bridge?.status?.();
+        const connectedIdentity = connection?.connected && connection.originIdentity
+            ? {
+                connectionId: connection.connectionId,
+                originIdentity: {...connection.originIdentity}
+            }
+            : null;
+        record.owner = 'Codex';
+        record.retained = ['PM task record and its archive state', 'Project working files', 'Selected sources and saved handoffs'];
+        record.native = {
+            threadId: origin?.provider === 'codex' ? origin.threadId : null,
+            origin: origin ? {
+                provider: origin.provider,
+                accountId: origin.accountId,
+                hostId: origin.hostId
+            } : null,
+            identity: null,
+            connectedIdentity,
+            descendants: ''
+        };
+        let method;
+        switch (record.action) {
+            case 'archive-native-task':
+                method = 'archiveThread';
+                record.effect = 'Archive the selected original Codex conversation. Codex also attempts to archive its spawned descendants. This may stop their work or close pending prompts on this connection, even if archival later fails.';
+                record.native.descendants = 'A successful request confirms the selected conversation. Individual descendants can fail to archive; their results remain unconfirmed here.';
+                record.buttonLabel = 'Archive this Codex conversation';
+                break;
+            case 'restore-native-task':
+                method = 'restoreThread';
+                record.effect = 'Restore the selected original Codex conversation from the native archive.';
+                record.native.descendants = 'This restores only the selected conversation. Restoration of spawned descendants is not part of this operation.';
+                record.buttonLabel = 'Restore this Codex conversation';
+                break;
+            case 'delete-native-task':
+                method = 'deleteThread';
+                record.effect = 'Permanently delete the selected original Codex conversation and its spawned descendants. This cannot be undone; archiving first is unnecessary. Work or pending prompts on this connection may stop before deletion completes.';
+                record.native.descendants = 'Codex includes spawned descendants in deletion. Individual descendant results remain unconfirmed here; a failed or interrupted request can still have changed native records.';
+                record.buttonLabel = 'Permanently delete this Codex conversation';
+                break;
+        }
+
+        if (record.native.threadId) {
+            record.nativeUrl = bridge?.getThreadUrl
+                ? bridge.getThreadUrl(record.native.threadId)
+                : origin.url || null;
+        }
+        record.available = false;
+        if (origin?.provider !== 'codex' || !origin.threadId) {
+            record.message = 'This PM task has no linked Codex conversation. Associate the original conversation in Connections first.';
+        } else if (!origin.accountId || !origin.hostId) {
+            record.message = 'The saved association has no complete native account and host identity. Associate this conversation with the intended connection in Connections first.';
+        } else if (!connection?.connected) {
+            record.message = 'Connect to the intended Codex account and host in Connections, then review this action again.';
+        } else if (connectedIdentity?.connectionId === undefined || connectedIdentity?.connectionId === null
+            || !connectedIdentity.originIdentity.accountId || !connectedIdentity.originIdentity.hostId) {
+            record.message = 'Codex has not supplied the current account and host identity. Review this action after the connection identity is available.';
+        } else if (!sameOrigin(origin, connectedIdentity.originIdentity)) {
+            record.message = 'This task is associated with a different Codex account or host. Connect to its recorded destination, then review the action again.';
+        } else if (!connection.capabilities?.[method] || typeof bridge?.[method] !== 'function') {
+            record.message = 'The current Codex connection does not provide this action.';
+        } else {
+            record.native.identity = connectedIdentity;
+            record.available = true;
+        }
+        return record;
+    }
+
+    function sameOrigin(left, right) {
+        return left?.provider === 'codex' && right?.provider === 'codex'
+            && Boolean(left.accountId) && left.accountId === right.accountId
+            && Boolean(left.hostId) && left.hostId === right.hostId;
+    }
+
+    function sameIdentity(left, right) {
+        return left?.connectionId !== undefined && left?.connectionId !== null
+            && left.connectionId === right?.connectionId
+            && sameOrigin(left.originIdentity, right.originIdentity);
+    }
+
+    function subscribeNative(listener, options) {
+        if (bridge?.subscribe) {
+            return bridge.subscribe(listener, options);
+        }
+        return function stopUnavailableSubscription() {};
     }
 
     async function reviewResource(targetId, projectId, signal) {
@@ -149,6 +228,21 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
         }
 
         const {action, targetId} = current;
+        if (current.native) {
+            if (selectedReview.native?.threadId !== current.native.threadId
+                || !sameOrigin(selectedReview.native?.origin, current.native.origin)
+                || !sameIdentity(selectedReview.native?.identity, current.native.identity)) {
+                return {
+                    status: 'target-changed',
+                    action,
+                    targetId,
+                    projectId: current.projectId,
+                    review: {...current, available: false},
+                    message: 'The native destination or connection changed after review. Review the intended conversation again before acting.'
+                };
+            }
+            return executeNative(current, signal);
+        }
         let result;
         let status;
         let message;
@@ -202,5 +296,76 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
         return {status, action, targetId, projectId: current.projectId, message, result};
     }
 
-    return {listProjectTargets, review, execute};
+    async function executeNative(current, signal) {
+        const {action, targetId, projectId, native} = current;
+        let method;
+        let expectedStatus;
+        let completedMessage;
+        switch (action) {
+            case 'archive-native-task':
+                method = 'archiveThread';
+                expectedStatus = 'archived';
+                completedMessage = 'Codex confirmed archival of the selected conversation. It also attempted its spawned descendants; individual descendant results remain unconfirmed here.';
+                break;
+            case 'restore-native-task':
+                method = 'restoreThread';
+                expectedStatus = 'restored';
+                completedMessage = 'Codex confirmed restoration of the selected conversation. Spawned descendants were not selected for restoration.';
+                break;
+            case 'delete-native-task':
+                method = 'deleteThread';
+                expectedStatus = 'deleted';
+                completedMessage = 'Codex acknowledged deletion of the selected conversation and its spawned-descendant operation. Individual descendant results remain unconfirmed here.';
+                break;
+        }
+
+        let result;
+        try {
+            result = await bridge[method](
+                {threadId: native.threadId, identity: native.identity, signal}
+            );
+        } catch (error) {
+            // Even a native error can follow partial descendant changes.
+            return {
+                status: error?.response ? 'failed' : 'unconfirmed',
+                action,
+                targetId,
+                projectId,
+                native,
+                error,
+                message: error?.response
+                    ? 'Codex reported a failure. Some native records may already have changed. Inspect the original conversation and its descendants before another action.'
+                    : 'The Codex outcome is unconfirmed. Inspect the original conversation and its descendants before another action; this request will not be repeated automatically.'
+            };
+        }
+
+        if (result?.status === 'unavailable') {
+            return {
+                status: 'unavailable',
+                action,
+                targetId,
+                projectId,
+                native,
+                result,
+                message: 'The intended Codex destination is unavailable or changed before dispatch. Review its current connection and target before acting again.'
+            };
+        }
+        const completed = result?.status === expectedStatus
+            && result.threadId === native.threadId
+            && sameIdentity(result.identity, native.identity);
+        return {
+            status: completed ? 'completed' : 'unconfirmed',
+            action,
+            targetId,
+            projectId,
+            native,
+            observedAt: result?.observedAt || null,
+            result,
+            message: completed
+                ? `${completedMessage} PM records, sources, handoffs and working files remain with their owners.`
+                : 'The bridge did not confirm this exact native action and destination. Inspect the original conversation and its descendants before another action.'
+        };
+    }
+
+    return {listProjectTargets, review, execute, subscribeNative};
 }
