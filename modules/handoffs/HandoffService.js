@@ -321,11 +321,20 @@ class HandoffService {
         const record = await this.get(id);
         if (!record?.toTaskId) return {available: false, message: 'Choose the receiving task.'};
         const task = await this.#pmData.getTask(record.toTaskId);
-        if (!task?.origin?.threadId) {
+        if (task?.origin?.provider !== 'codex' || !task.origin.threadId) {
             return {available: false, message: 'The receiving task needs a connected Codex conversation.'};
         }
-        if (!this.#bridge?.sendHandoff || !this.#bridge.status().capabilities?.sendHandoff) {
+        const connection = this.#bridge?.status();
+        if (!this.#bridge?.sendHandoff || !this.#bridge.readThread
+            || !connection?.capabilities?.sendHandoff || !connection.capabilities.readThread) {
             return {available: false, message: 'Handoff delivery is unavailable through this connection. Local preparation remains available.'};
+        }
+        if (!task.origin.accountId || !task.origin.hostId) {
+            return {available: false, message: 'Associate this receiving conversation with its Codex account and host in Connections before sending.'};
+        }
+        if (!connection.connected || connection.connectionId === undefined || connection.connectionId === null
+            || !sameHandoffOrigin(task.origin, connection.originIdentity)) {
+            return {available: false, message: 'Connect to the receiving task’s recorded Codex account and host before sending.'};
         }
         if (record.originals.some(hasBinaryOriginal)) {
             return {available: false, message: 'This connection cannot carry the selected original files. Their complete local copies remain available.'};
@@ -345,11 +354,27 @@ class HandoffService {
                 const destination = await service.#pmData.getTask(record.toTaskId);
                 signal?.throwIfAborted();
                 if (!destination?.origin?.threadId) throw handoffInputError('The receiving conversation is unavailable.');
+                const selected = await service.#bridge.readThread(
+                    {threadId: destination.origin.threadId, signal}
+                );
+                signal?.throwIfAborted();
+                const connection = service.#bridge.status();
+                if (selected?.status !== 'available'
+                    || selected.threadId !== destination.origin.threadId
+                    || selected.thread?.id !== destination.origin.threadId
+                    || !connection.connected
+                    || !sameHandoffIdentity(
+                        selected.identity,
+                        {connectionId: connection.connectionId, originIdentity: destination.origin}
+                    )) {
+                    throw handoffInputError('The receiving conversation or connection changed. Review its association in Connections before sending.');
+                }
                 const attempt = {
                     id: crypto.randomUUID(),
                     status: 'sending',
                     requestedAt: new Date().toISOString(),
                     destination: structuredClone(destination.origin),
+                    identity: structuredClone(selected.identity),
                     message: 'Delivery requested.'
                 };
                 record.attempts.push(attempt);
@@ -359,9 +384,16 @@ class HandoffService {
                 try {
                     signal?.throwIfAborted();
                     const result = await service.#bridge.sendHandoff(
-                        {threadId: destination.origin.threadId, input: deliveryInput(record), signal}
+                        {
+                            threadId: destination.origin.threadId,
+                            input: deliveryInput(record),
+                            identity: attempt.identity,
+                            signal
+                        }
                     );
-                    if (result?.accepted === true && result.status === 'accepted' && result.turnId && result.threadId === destination.origin.threadId) {
+                    if (result?.accepted === true && result.status === 'accepted' && result.turnId
+                        && result.threadId === destination.origin.threadId
+                        && sameHandoffIdentity(result.identity, attempt.identity)) {
                         attempt.status = 'accepted';
                         attempt.confirmedAt = result.acceptedAt;
                         attempt.turnId = result.turnId;
@@ -502,6 +534,18 @@ function editDomain(key, operation) {
 
 function hasBinaryOriginal(original) {
     return Boolean(original.originalFileRef);
+}
+
+function sameHandoffOrigin(left, right) {
+    return left?.provider === 'codex' && right?.provider === 'codex'
+        && Boolean(left.accountId) && left.accountId === right.accountId
+        && Boolean(left.hostId) && left.hostId === right.hostId;
+}
+
+function sameHandoffIdentity(left, right) {
+    return left?.connectionId !== undefined && left?.connectionId !== null
+        && left.connectionId === right?.connectionId
+        && sameHandoffOrigin(left.originIdentity, right.originIdentity);
 }
 
 function deliveryInput(record) {

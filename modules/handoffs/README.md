@@ -38,18 +38,30 @@ preserve the previous note. Local model execution depends on the model owner.
 ## Delivery and progress
 
 `deliveryAvailability(id)` reports whether the connected bridge can carry the
-saved handoff. Binary originals currently keep delivery unavailable because the
-bridge's native input contract has no complete file-transfer path.
+saved handoff to its recorded Codex account and host. A receiving association
+without that identity is completed deliberately in Connections; local drafts
+remain available independently of the connected account. Binary originals
+currently keep delivery unavailable because the bridge's native input contract
+has no complete file-transfer path.
 
 `deliver(id, {signal})` requires a ready record and a receiving task with a
 connected native thread. Assignment, decisions, questions, note, and original
 text remain separate unchanged native text inputs. Control and source metadata
-use separate inputs. The service saves an unconfirmed attempt before the native
-call. Acceptance requires the bridge's explicit accepted status, matching
-destination thread, and returned native turn ID. A fulfilled Promise alone
-does not establish delivery. Missing confirmation remains unconfirmed and is
+use separate inputs. One fresh `readThread` metadata read selects the exact
+receiving thread and `{connectionId, originIdentity:{provider, accountId,
+hostId}}` envelope before each send. It must match the saved PM association
+and current connection. This read does not resume or send to the conversation.
+The service saves that selection in an unconfirmed attempt before the native
+call and passes identity as routing metadata separately from the unchanged
+input. The bridge retains the same selection through resume and turn dispatch.
+Acceptance requires the bridge's explicit accepted status, matching
+destination thread and operation identity, and returned native turn ID. A
+fulfilled Promise alone does not establish delivery. Missing confirmation remains unconfirmed and is
 never automatically retried. Confirmed unavailability before dispatch returns
-the record to ready. Raw transport acknowledgments stay outside saved records.
+the record to ready. An error after resume remains unconfirmed, even when the
+turn was not sent; the complete error and resume acknowledgment remain in
+developer diagnostics. Raw transport acknowledgments stay outside saved records.
+New attempts carry their selected identity; existing saved history is unchanged.
 
 Per-handoff Web Locks serialize the read, attempt write, native call, and result
 write across tabs. A module-local queue supports same-realm operation where
