@@ -22,7 +22,11 @@
         "order": 0,
         "bundledApps": [],
         "services": [
-            {"module": "bridge/codex-service.mjs", "options": {}}
+            {"module": "bridge/codex-service.mjs", "options": {}},
+            {
+                "module": "modules/local-ai/core-service.mjs",
+                "options": {"runtimes": ["ollama"]}
+            }
         ]
     },
     "requirements": {
