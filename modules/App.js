@@ -46,6 +46,13 @@ function bridgeFailed(error) {
     throw error;
 }
 
+function reportBridgeFailure(error) {
+    if (!lifetime.signal.aborted) {
+        console.error('Arcane PM connection services could not open.', error);
+        connectionStatus.textContent = 'Codex connection unavailable';
+    }
+}
+
 function updateConnection(state) {
     if (state.pendingRequests?.length) {
         connectionStatus.textContent = 'Codex needs your input';
@@ -365,3 +372,4 @@ globalThis.addEventListener('pagehide', closeApplication);
 pmData.subscribe(refreshProjects, {signal: lifetime.signal});
 renderRoute();
 refreshProjects();
+getBridge().catch(reportBridgeFailure);

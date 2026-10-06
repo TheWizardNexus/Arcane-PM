@@ -20,7 +20,10 @@
         "type": "app",
         "icon": null,
         "order": 0,
-        "bundledApps": []
+        "bundledApps": [],
+        "services": [
+            {"module": "bridge/codex-service.mjs", "options": {}}
+        ]
     },
     "requirements": {
         "arcaneProtocol": "arcane/1",
