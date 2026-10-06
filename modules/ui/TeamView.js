@@ -888,7 +888,7 @@ export function mountTeamView(container, options) {
         const readingText = taskReadFailed ? 'Other records unavailable' : 'Opening records…';
         column.count.textContent = tasksLoaded ? countText : total ? `${countText} loaded · ${readingText}` : taskReadFailed ? 'Unavailable' : 'Opening tasks…';
         column.empty.hidden = !tasksLoaded || Boolean(total);
-        column.pagination.hidden = !total;
+        column.pagination.hidden = pages === 1;
         column.previous.disabled = column.page === 0;
         column.next.disabled = column.page + 1 >= pages;
         column.indicator.textContent = total ? `${start + 1}–${end} of ${total}${tasksLoaded ? '' : ' loaded'} · Page ${column.page + 1} of ${pages}` : '';
