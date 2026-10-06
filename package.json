@@ -6,7 +6,8 @@
     "type": "module",
     "scripts": {
         "dev": "arcane dev --http --port 4310",
-        "import-map": "arcane import-map"
+        "import-map": "arcane import-map",
+        "build:windows": "node scripts/build-windows.mjs"
     },
     "dependencies": {
         "arcane-os": "latest"
