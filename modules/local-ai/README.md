@@ -141,9 +141,12 @@ surface a source error and retain full developer diagnostics instead of sending
 partial source text. An empty retained scope describes that scope only; native
 import coverage remains a separate result. A native task missing its account,
 host or thread association exposes a reconnect action before preparation.
-App-owned system instructions ask for a concrete
-symbol representing that work, using the approved warm adult editorial style:
-soft rounded forms, deep teal, warm ivory, muted gold and restrained lavender.
+App-owned system instructions follow the supplied light and dark references:
+distinctive illustrated adult human workers and a project guide, with friendly
+expressive faces, individual hairstyles, softly shaded forms and centered
+head-and-shoulder composition suited to a round crop. The actual work informs
+their character, clothing and one subtle accessory. Deep teal, warm ivory,
+muted gold and restrained lavender keep the portraits visually consistent.
 The complete actual response becomes the image prompt through the published
 image owner. No authored source is rewritten or wrapped into that prompt.
 
