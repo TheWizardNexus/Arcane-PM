@@ -142,6 +142,11 @@ unknown delivery outcome; there is no automatic retry or fabricated success.
 `observeTaskActivity` attaches listeners before independently seeding each
 selected thread through `readThread`. It never resumes a thread, starts an
 inference, polls or waits for all tasks before delivering an observation.
+Metadata acquisition uses an observer-owned FIFO with four active read promises;
+notifications and pending requests retain their immediate path. Deselection,
+connection retirement and disposal remove obsolete queued work and cancel the
+owning reads. Existing Core/native cancellation determines any already-sent
+request's lifetime. Newer row evidence supersedes a queued or returning seed.
 Callbacks receive `{observerId,revision,observedAt,connection,threads}`. The
 observer ID and revision order this subscription's callbacks; they belong to
 transient coordination, not durable PM history.

@@ -3,6 +3,9 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
     const observerId = crypto.randomUUID();
     const lifetime = new AbortController();
     const subscriptions = [];
+    const seedQueue = new Map();
+    const seedConcurrency = 4;
+    let activeSeedReads = 0;
     let connectionLifetime = new AbortController();
     let connection = describeConnection({});
     let records = new Map();
@@ -175,6 +178,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         connection = next;
         if (changed) {
             connectionLifetime.abort();
+            seedQueue.clear();
             connectionLifetime = new AbortController();
             const observedAt = state.observedAt ?? new Date().toISOString();
             for (const record of records.values()) {
@@ -206,20 +210,48 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         for (const record of records.values()) seed(record);
     }
 
-    async function seed(record) {
+    function seed(record) {
         if (disposed || record.seeded || records.get(record.threadId) !== record || !canObserve()) return;
         record.seeded = true;
         const version = record.version;
         const identity = {connectionId: connection.connectionId, originIdentity: {...connection.originIdentity}};
         const readSignal = AbortSignal.any([lifetime.signal, connectionLifetime.signal, record.lifetime.signal]);
-        function isCurrentRead() {
-            return !disposed && !readSignal.aborted && records.get(record.threadId) === record
-                && record.version === version && connection.connectionId === identity.connectionId
-                && sameIdentity(connection.originIdentity, identity.originIdentity);
+        seedQueue.set(record, {record, version, identity, readSignal});
+        drainSeeds();
+    }
+
+    function isCurrentSeed({record, version, identity, readSignal}) {
+        return !disposed && !readSignal.aborted && records.get(record.threadId) === record
+            && record.version === version && connection.connectionId === identity.connectionId
+            && sameIdentity(connection.originIdentity, identity.originIdentity);
+    }
+
+    function drainSeeds() {
+        // Only metadata acquisition queues; native events keep their immediate path.
+        while (!disposed && canObserve() && activeSeedReads < seedConcurrency && seedQueue.size) {
+            const work = seedQueue.values().next().value;
+            seedQueue.delete(work.record);
+            if (!isCurrentSeed(work)) continue;
+            activeSeedReads++;
+            readSeed(work).then(releaseSeed, function reportSeedFailure(error) {
+                if (!disposed && !work.readSignal.aborted) {
+                    console.error('Arcane PM Codex task activity seed failed', error);
+                }
+                releaseSeed();
+            });
         }
+    }
+
+    function releaseSeed() {
+        activeSeedReads--;
+        drainSeeds();
+    }
+
+    async function readSeed(work) {
+        const {record, identity, readSignal} = work;
         try {
             const result = await bridge.readThread({threadId: record.threadId, signal: readSignal});
-            if (!isCurrentRead()) return;
+            if (!isCurrentSeed(work)) return;
             const observedAt = result.observedAt ?? new Date().toISOString();
             if (!result.identity || result.identity.connectionId !== identity.connectionId
                 || !sameIdentity(result.identity.originIdentity, identity.originIdentity)) {
@@ -239,7 +271,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         } catch (error) {
             if (readSignal.aborted) return;
             console.error('Arcane PM Codex task activity could not be read', {threadId: record.threadId, identity, error});
-            if (!isCurrentRead()) return;
+            if (!isCurrentSeed(work)) return;
             record.reason = 'read-failed';
             record.live = false;
             record.observedAt = new Date().toISOString();
@@ -329,7 +361,10 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             }
         }
         for (const record of records.values()) {
-            if (!next.has(record.threadId)) record.lifetime.abort();
+            if (!next.has(record.threadId)) {
+                seedQueue.delete(record);
+                record.lifetime.abort();
+            }
         }
         records = next;
         reconcilePending(bridge.status().pendingRequests, added);
@@ -341,6 +376,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
         if (disposed) return;
         disposed = true;
         signal?.removeEventListener('abort', dispose);
+        seedQueue.clear();
         lifetime.abort();
         connectionLifetime.abort();
         for (const record of records.values()) record.lifetime.abort();
