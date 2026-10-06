@@ -1,4 +1,49 @@
 /* Arcane PM composes the shared theme and primitives with its project layout. */
+/* The approved PM light/dark recipe uses the shared palette contract. A selected
+ * named or custom user skin keeps its own tokens and the shared scheme owner. */
+:root:not([data-user-skin]):not([data-arcane-skin="custom"]) {
+    --arcane-palette-light-background: rgb(252, 251, 249);
+    --arcane-palette-light-modal-background: rgb(255, 255, 255);
+    --arcane-palette-light-text-color: rgb(13, 30, 57);
+    --arcane-palette-light-primary-color: rgb(20, 104, 94);
+    --arcane-palette-light-secondary-color: rgb(223, 242, 239);
+    --arcane-palette-light-accent-color: rgb(12, 97, 100);
+    --arcane-palette-light-button-text-color: rgb(255, 255, 255);
+    --arcane-palette-light-border-color: rgb(222, 229, 231);
+    --arcane-palette-light-focus-color: rgb(20, 119, 112);
+    --arcane-palette-light-muted-text-color: rgb(105, 119, 146);
+    --arcane-palette-light-success-color: rgb(37, 151, 84);
+    --arcane-palette-light-warning-color: rgb(190, 101, 31);
+    --arcane-palette-light-danger-color: rgb(178, 65, 49);
+    --arcane-palette-light-review-color: rgb(133, 120, 189);
+    --arcane-palette-light-shadow-color: rgba(13, 46, 59, .04);
+    --arcane-palette-dark-background: rgb(10, 46, 60);
+    --arcane-palette-dark-modal-background: rgb(21, 55, 68);
+    --arcane-palette-dark-text-color: rgb(246, 246, 243);
+    --arcane-palette-dark-primary-color: rgb(123, 231, 204);
+    --arcane-palette-dark-secondary-color: rgb(18, 74, 80);
+    --arcane-palette-dark-accent-color: rgb(151, 245, 224);
+    --arcane-palette-dark-button-text-color: rgb(7, 46, 56);
+    --arcane-palette-dark-border-color: rgb(48, 84, 98);
+    --arcane-palette-dark-focus-color: rgb(143, 238, 216);
+    --arcane-palette-dark-muted-text-color: rgb(182, 208, 222);
+    --arcane-palette-dark-success-color: rgb(88, 224, 113);
+    --arcane-palette-dark-warning-color: rgb(255, 191, 99);
+    --arcane-palette-dark-danger-color: rgb(250, 153, 127);
+    --arcane-palette-dark-review-color: rgb(155, 143, 204);
+    --arcane-palette-dark-shadow-color: rgba(0, 18, 25, .08);
+    --pm-working-surface: light-dark(rgb(242, 249, 247), rgb(12, 62, 71));
+    --pm-attention-surface: light-dark(rgb(254, 245, 237), rgb(49, 46, 58));
+    --pm-ready-surface: light-dark(rgb(247, 244, 251), rgb(36, 51, 77));
+    --pm-guide-surface: light-dark(rgb(240, 249, 246), rgb(15, 57, 73));
+}
+
+:root {
+    --arcane-radius-large: .75rem;
+    --arcane-radius-medium: .65rem;
+    --pm-brand-gold: rgb(221, 172, 65);
+}
+
 html {
     block-size: 100%;
     overflow: hidden;
@@ -12,7 +57,7 @@ html {
     min-inline-size: 0;
     margin: 0;
     overflow: hidden;
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: Arial, "Helvetica Neue", sans-serif;
     font-size: 1rem;
     line-height: 1.5;
     background: var(--arcane-surface);
@@ -78,8 +123,8 @@ html {
 /* The document stays fixed; project pages scroll inside this one main region. */
 .pm-shell {
     display: grid;
-    grid-template-columns: 16rem minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: 17.375rem minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
     min-block-size: 0;
     min-inline-size: 0;
 }
@@ -89,13 +134,13 @@ html {
     grid-column: 1;
     grid-row: 1 / -1;
     flex-direction: column;
-    gap: var(--arcane-space-4);
+    gap: .875rem;
     min-block-size: 0;
     min-inline-size: 0;
-    padding: var(--arcane-space-5) var(--arcane-space-4);
+    padding: 1.375rem .8125rem 1.5rem;
     overflow: auto;
     border-inline-end: 1px solid var(--arcane-border);
-    background: var(--arcane-surface-raised);
+    background: var(--arcane-surface);
     overscroll-behavior: contain;
 }
 
@@ -103,62 +148,94 @@ html {
     display: flex;
     align-items: center;
     gap: var(--arcane-space-3);
+    padding-inline: 1.25rem .25rem;
     color: var(--text-color);
     text-decoration: none;
 }
 
 .pm-brand svg {
-    flex: 0 0 3.25rem;
-    color: var(--accent-color);
+    flex: 0 0 4.3125rem;
+    inline-size: 4.3125rem;
+    block-size: 4.3125rem;
+    color: var(--text-color);
 }
 
 .pm-brand svg path[fill] {
-    color: var(--arcane-warning);
+    color: var(--pm-brand-gold);
 }
 
 .pm-brand strong {
     display: block;
-    font-size: 1.5rem;
+    font-size: 1.85rem;
     font-weight: 750;
-    letter-spacing: -.04em;
+    letter-spacing: -.035em;
     line-height: 1.2;
+    white-space: nowrap;
 }
 
 .pm-brand small {
     display: block;
     margin-block-start: var(--arcane-space-1);
-    font-size: .75rem;
+    font-size: .8rem;
     letter-spacing: .14em;
 }
 
+.pm-project-field {
+    position: relative;
+}
+
 .pm-project-field label {
-    color: var(--arcane-muted);
-    font-size: .8rem;
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.pm-project-field > svg {
+    position: absolute;
+    inset-inline-start: 1.1rem;
+    inset-block-start: .65rem;
+    inline-size: 1.4rem;
+    block-size: 1.4rem;
+    color: color-mix(in srgb, var(--accent-color) 55%, var(--arcane-surface));
+    pointer-events: none;
 }
 
 .pm-project-field select {
     min-block-size: 2.75rem;
+    padding-inline-start: 3.25rem;
+    border-radius: var(--arcane-radius-medium);
+    background: color-mix(in srgb, var(--arcane-surface-raised) 70%, transparent);
 }
 
 .pm-navigation {
     display: grid;
-    gap: var(--arcane-space-2);
+    gap: .25rem;
+}
+
+.pm-sidebar > .pm-navigation {
+    margin-block-start: .875rem;
 }
 
 .pm-navigation a {
     display: flex;
     align-items: center;
-    gap: var(--arcane-space-3);
-    min-block-size: 2.75rem;
-    padding: var(--arcane-space-3);
-    border-inline-start: .2rem solid transparent;
+    gap: 1.25rem;
+    min-block-size: 2.875rem;
+    padding: .6rem 1.5rem;
     border-radius: var(--arcane-radius-medium);
     color: var(--text-color);
+    font-size: 1.125rem;
     text-decoration: none;
 }
 
-.pm-navigation a > span {
-    flex: 0 0 1.25rem;
+.pm-navigation a > span,
+.pm-nav-icon {
+    flex: 0 0 1.75rem;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
     font-size: 1.35rem;
     line-height: 1;
     text-align: center;
@@ -169,47 +246,57 @@ html {
 }
 
 .pm-navigation a[aria-current="page"] {
-    border-inline-start-color: var(--accent-color);
-    font-weight: 700;
+    font-weight: 500;
     background: var(--arcane-secondary);
-    color: var(--arcane-secondary-text);
+    color: var(--accent-color);
 }
 
 .pm-sidebar-bottom {
     display: grid;
-    gap: var(--arcane-space-4);
+    gap: 1.5rem;
     margin-block-start: auto;
     padding-block-start: var(--arcane-space-4);
 }
 
-.pm-appearance {
-    display: grid;
-    gap: var(--arcane-space-3);
-    min-inline-size: 0;
-    padding-block-start: var(--arcane-space-4);
-    border-block-start: 1px solid var(--arcane-border);
-}
-
-.pm-appearance h2 {
-    font-size: .85rem;
-    font-weight: 650;
-    color: var(--arcane-muted);
-}
-
-.pm-appearance html-import {
-    --app-bar-accent: var(--text-color);
-    --app-bar-active-text: var(--arcane-surface-raised);
+.pm-theme-control {
+    --app-bar-accent: light-dark(var(--arcane-secondary), var(--arcane-action));
+    --app-bar-active-text: light-dark(var(--accent-color), var(--arcane-action-text));
     --app-bar-border: var(--arcane-border);
     display: block;
     min-inline-size: 0;
+    margin-inline: .375rem;
 }
 
 .pm-local-caption {
-    font-size: .85rem;
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-inline: .4rem;
+    padding-block-start: 1rem;
+    border-block-start: 1px solid var(--arcane-border);
+    font-size: 1.05rem;
+    color: var(--accent-color);
 }
 
-.pm-local-caption span {
+.pm-local-caption p > span,
+.pm-preparation-link {
+    font-size: .875rem;
     color: var(--arcane-muted);
+}
+
+.pm-workspace-avatar {
+    display: grid;
+    flex: 0 0 3.4rem;
+    place-items: center;
+    inline-size: 3.4rem;
+    block-size: 3.4rem;
+    border-radius: 50%;
+    background: var(--arcane-secondary);
+}
+
+.pm-workspace-avatar svg {
+    inline-size: 2rem;
+    block-size: 2rem;
 }
 
 .pm-topbar {
@@ -220,9 +307,10 @@ html {
     flex-wrap: wrap;
     gap: var(--arcane-space-4);
     min-inline-size: 0;
-    padding: var(--arcane-space-4) var(--arcane-space-5);
+    min-block-size: 4.875rem;
+    padding: .875rem 1.375rem;
     border-block-end: 1px solid var(--arcane-border);
-    background: var(--arcane-surface-raised);
+    background: color-mix(in srgb, var(--arcane-surface-raised) 35%, var(--arcane-surface));
 }
 
 .pm-mobile-menu {
@@ -250,8 +338,8 @@ html {
     align-items: center;
     justify-content: space-between;
     gap: var(--arcane-space-3);
-    min-block-size: 2.75rem;
-    max-inline-size: 45rem;
+    min-block-size: 3.125rem;
+    max-inline-size: 50rem;
     padding: var(--arcane-space-2) var(--arcane-space-4);
     border: 1px solid var(--arcane-border);
     border-radius: var(--arcane-radius-medium);
@@ -259,6 +347,17 @@ html {
     background: var(--arcane-surface);
     color: var(--arcane-muted);
     cursor: pointer;
+}
+
+.pm-search-button > svg {
+    flex: 0 0 1.5rem;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+}
+
+.pm-search-button > span {
+    flex: 1;
+    font-size: 1.15rem;
 }
 
 .pm-search-button:hover {
@@ -278,8 +377,15 @@ html {
 .pm-connection-status {
     flex: 0 1 auto;
     margin-inline-start: auto;
-    font-size: .85rem;
-    color: var(--arcane-muted);
+    font-size: 1rem;
+    color: var(--text-color);
+    text-decoration: none;
+}
+
+.pm-connection-status::before {
+    content: '↗';
+    margin-inline-end: .6rem;
+    color: var(--accent-color);
 }
 
 .pm-main {
@@ -287,14 +393,14 @@ html {
     grid-row: 2;
     min-block-size: 0;
     min-inline-size: 0;
-    padding: clamp(1rem, 2.5vw, 2rem);
+    padding: .875rem 1.5625rem 1rem;
     overflow: auto;
     scroll-padding-block: var(--arcane-space-5);
     overscroll-behavior: contain;
 }
 
 .pm-main > * + * {
-    margin-block-start: var(--arcane-space-5);
+    margin-block-start: .875rem;
 }
 
 .pm-connections > * + *,
@@ -318,13 +424,140 @@ html {
 
 .pm-page-heading h1 {
     margin-block: var(--arcane-space-1) var(--arcane-space-2);
-    font-size: clamp(1.8rem, 3vw, 2.7rem);
+    font-size: clamp(1.8rem, 3vw, 2.875rem);
     font-weight: 750;
-    letter-spacing: -.045em;
+    letter-spacing: -.025em;
 }
 
 .pm-page-heading p {
     color: var(--arcane-muted);
+}
+
+.pm-team-heading {
+    align-items: flex-start;
+    margin-block-end: 1.25rem;
+}
+
+.pm-team-heading-copy {
+    min-inline-size: 0;
+}
+
+.pm-team-heading .pm-task-presentation {
+    gap: 0;
+}
+
+.pm-team-heading h1 {
+    margin-block: 0;
+}
+
+.pm-team-subtitle {
+    font-size: 1.1rem;
+}
+
+.pm-team-subtitle strong {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--arcane-muted);
+}
+
+.pm-team-heading > .pm-actions {
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: .25rem;
+    margin-block-start: .75rem;
+}
+
+.pm-add-task {
+    min-inline-size: 10.9375rem;
+    min-block-size: 3.375rem;
+    padding-inline: 1.5rem;
+    font-size: 1.2rem;
+}
+
+.pm-add-task::before {
+    content: '+';
+    font-size: 1.75rem;
+    font-weight: 400;
+    line-height: 1;
+}
+
+.pm-add-project,
+.pm-guide-preparation {
+    min-block-size: 2rem;
+    padding: .25rem .4rem;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    color: var(--accent-color);
+    font-size: .9rem;
+    font-weight: 400;
+    text-decoration: underline;
+    text-underline-offset: .2em;
+}
+
+.pm-team-project {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin-block-start: .5rem;
+}
+
+.pm-team-project .pm-project-avatar {
+    inline-size: 2rem;
+    block-size: 2rem;
+    flex: 0 0 2rem;
+}
+
+.pm-team-project .pm-eyebrow {
+    font-size: .85rem;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+.pm-attention-strip {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    min-block-size: 3.375rem;
+    padding: .6rem .9rem;
+    border: 1px solid color-mix(in srgb, var(--arcane-warning) 20%, transparent);
+    border-radius: var(--arcane-radius-medium);
+    background: color-mix(in srgb, var(--arcane-warning) 10%, var(--arcane-surface));
+}
+
+.pm-attention-icon {
+    display: grid;
+    flex: 0 0 1.75rem;
+    place-items: center;
+    block-size: 1.75rem;
+    border-radius: 50%;
+    background: var(--arcane-warning);
+    color: var(--arcane-surface);
+    font-weight: 700;
+}
+
+.pm-attention-action,
+.pm-attention-dismiss {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    color: var(--accent-color);
+}
+
+.pm-attention-action {
+    min-block-size: 2rem;
+    padding: .15rem .4rem;
+    font-weight: 400;
+    text-decoration: underline;
+}
+
+.pm-attention-dismiss {
+    margin-inline-start: auto;
+    min-block-size: 2rem;
+    padding: .25rem;
+    color: var(--arcane-warning);
 }
 
 .pm-eyebrow {
@@ -384,24 +617,17 @@ html {
 
 .pm-team-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 16rem;
-    align-items: start;
-    gap: var(--arcane-space-4);
-}
-
-.pm-team-layout:has(> .pm-guide-region) {
-    grid-template-columns: minmax(0, 1fr);
-}
-
-.pm-guide-region {
+    grid-template-columns: minmax(0, 3.2fr) minmax(14rem, 1fr);
+    align-items: stretch;
+    gap: .75rem;
     min-inline-size: 0;
 }
 
 .pm-board {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    align-items: start;
-    gap: var(--arcane-space-4);
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1.05fr);
+    align-items: stretch;
+    gap: .75rem;
     min-inline-size: 0;
 }
 
@@ -421,41 +647,81 @@ html {
 .pm-column {
     --pm-state-color: var(--arcane-muted);
     min-inline-size: 0;
-    padding: var(--arcane-space-4);
-    border: 1px solid color-mix(in srgb, var(--pm-state-color) 22%, var(--arcane-border));
-    border-radius: var(--arcane-radius-large);
-    background: color-mix(in srgb, var(--pm-state-color) 6%, var(--arcane-surface));
+    min-block-size: 33.5rem;
+    padding: 1rem .75rem .75rem;
+    border: 1px solid color-mix(in srgb, var(--pm-state-color) 18%, var(--arcane-border));
+    border-radius: var(--arcane-radius-medium);
+    background: color-mix(in srgb, var(--pm-state-color) 7%, var(--arcane-surface));
 }
 
 .pm-column[data-state="working"] {
-    --pm-state-color: var(--arcane-success);
+    --pm-state-color: var(--accent-color);
+    background: var(--pm-working-surface, color-mix(in srgb, var(--accent-color) 7%, var(--arcane-surface)));
 }
 
 .pm-column[data-state="attention"] {
     --pm-state-color: var(--arcane-warning);
+    background: var(--pm-attention-surface, color-mix(in srgb, var(--arcane-warning) 7%, var(--arcane-surface)));
 }
 
 .pm-column[data-state="ready"] {
     --pm-state-color: var(--arcane-review);
+    background: var(--pm-ready-surface, color-mix(in srgb, var(--arcane-review) 7%, var(--arcane-surface)));
 }
 
-.pm-column[data-state="completed"] {
+.pm-column[data-state="completed"],
+.pm-column[data-state="unobserved"] {
     grid-column: 1 / -1;
+    min-block-size: 0;
+}
+
+.pm-completed-tasks .pm-task-list,
+.pm-unobserved-tasks .pm-task-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pm-column-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-block-start: 1rem;
+    padding-block-start: .75rem;
+    border-block-start: 1px solid var(--arcane-border);
+    font-size: .85rem;
+}
+
+.pm-column-pagination button {
+    min-block-size: 2.75rem;
+    padding: .45rem .65rem;
+    font-size: inherit;
+}
+
+.pm-page-indicator {
+    flex: 1 1 5rem;
+    text-align: center;
+    color: var(--arcane-muted);
 }
 
 .pm-column > header {
     display: grid;
     gap: var(--arcane-space-1);
     margin-block-end: var(--arcane-space-4);
+    padding-inline: .65rem;
 }
 
 .pm-column > header h2 {
-    font-size: 1.25rem;
+    font-size: clamp(1.35rem, 1.75vw, 1.8rem);
 }
 
 .pm-column > header p {
     color: var(--arcane-muted);
-    font-size: .85rem;
+    font-size: 1.05rem;
+}
+
+.pm-column[data-state="working"] > header h2 {
+    color: var(--accent-color);
 }
 
 .pm-column-empty {
@@ -475,17 +741,20 @@ html {
 
 .pm-task-card {
     display: grid;
-    grid-template-columns: 4.25rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
-    gap: var(--arcane-space-3);
+    gap: .65rem;
     min-inline-size: 0;
-    padding: var(--arcane-space-4);
+    padding: .8rem;
+    border-radius: var(--arcane-radius-medium);
+    box-shadow: none;
+    background: color-mix(in srgb, var(--arcane-surface-raised) 92%, transparent);
 }
 
 .pm-task-face {
     display: grid;
     grid-column: 1;
-    grid-row: 1 / 3;
+    grid-row: auto;
     place-items: center;
     inline-size: 4.25rem;
     block-size: 4.25rem;
@@ -505,9 +774,20 @@ html {
     object-fit: contain;
 }
 
+.pm-task-card .pm-task-face {
+    inline-size: 7rem;
+    block-size: 7rem;
+    overflow: hidden;
+}
+
+.pm-task-card .pm-task-face > img {
+    border-radius: 50%;
+    object-fit: cover;
+}
+
 .pm-task-card h3 {
     min-inline-size: 0;
-    font-size: 1rem;
+    font-size: 1.25rem;
     line-height: 1.35;
 }
 
@@ -524,18 +804,46 @@ a.pm-task-title:hover {
     justify-self: start;
     min-inline-size: 0;
     padding: var(--arcane-space-1) var(--arcane-space-2);
-    border-radius: var(--arcane-radius-small);
-    font-size: .8rem;
-    font-weight: 650;
+    border-radius: 999px;
+    font-size: .9rem;
+    font-weight: 400;
     background: color-mix(in srgb, var(--pm-state-color, var(--arcane-muted)) 12%, var(--arcane-surface-raised));
     color: var(--text-color);
 }
 
 .pm-task-description {
     grid-column: 1 / -1;
-    font-size: .9rem;
+    font-size: 1rem;
     white-space: pre-wrap;
     color: var(--arcane-muted);
+}
+
+.pm-task-extra {
+    grid-column: 1 / -1;
+    min-inline-size: 0;
+    font-size: .8rem;
+    color: var(--arcane-muted);
+}
+
+.pm-task-extra:has(> [hidden]) {
+    display: none;
+}
+
+.pm-task-extra > summary {
+    cursor: pointer;
+}
+
+.pm-task-extra > summary > strong {
+    font-weight: 400;
+}
+
+.pm-task-extra > .pm-task-activity {
+    margin-block-start: .5rem;
+    border-block-start: 0;
+}
+
+.pm-task-extra:has(> .pm-task-activity[data-current="true"]) > summary {
+    color: var(--accent-color);
 }
 
 .pm-task-activity {
@@ -593,6 +901,16 @@ a.pm-task-title:hover {
     font-size: .9rem;
     font-weight: 650;
     text-decoration: none;
+    justify-content: flex-start;
+    min-block-size: 2rem;
+    padding-inline: 0;
+    padding-block-end: 0;
+    border-inline: 0;
+    border-block-end: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    color: var(--accent-color);
 }
 
 .pm-task-link:hover {
@@ -601,26 +919,226 @@ a.pm-task-title:hover {
 
 .pm-team-guide {
     display: grid;
+    align-content: start;
     justify-items: start;
-    gap: var(--arcane-space-4);
+    gap: 1.1rem;
     min-inline-size: 0;
-    padding: var(--arcane-space-5);
+    padding: 1rem 1.2rem 1.4rem;
     border: 1px solid var(--arcane-border);
     border-radius: var(--arcane-radius-large);
-    background: var(--arcane-surface-raised);
+    box-shadow: none;
+    background: var(--pm-guide-surface, color-mix(in srgb, var(--accent-color) 7%, var(--arcane-surface)));
+}
+
+.pm-team-guide h2 {
+    font-size: clamp(1.35rem, 1.75vw, 1.8rem);
+}
+
+.pm-guide-subtitle {
+    margin-block-start: -.7rem;
+    font-size: 1.05rem;
+}
+
+.pm-guide-portrait {
+    position: relative;
+    justify-self: center;
+    inline-size: 10.75rem;
+    block-size: 10.75rem;
+    max-inline-size: 100%;
+    border-radius: 50%;
+    overflow: hidden;
 }
 
 .pm-guide-face {
     display: block;
-    inline-size: 8rem;
-    block-size: 8rem;
-    max-inline-size: 100%;
+    inline-size: 140%;
+    block-size: 140%;
+    max-inline-size: none;
+    margin: -20%;
     border-radius: 50%;
+    object-fit: contain;
+}
+
+.pm-guide-portrait > img:not(.pm-guide-face) {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
     object-fit: contain;
 }
 
 .pm-team-guide p {
     color: var(--arcane-muted);
+}
+
+.pm-guide-summary {
+    display: grid;
+    gap: .75rem;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+    font-size: 1.05rem;
+}
+
+.pm-guide-unobserved {
+    justify-content: flex-start;
+    min-block-size: 2.75rem;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    color: var(--accent-color);
+    font: inherit;
+    text-align: start;
+    text-decoration: underline;
+    text-underline-offset: .2em;
+}
+
+.pm-guide-open {
+    inline-size: 100%;
+    min-block-size: 3.375rem;
+    margin-block-start: .35rem;
+    font-size: 1.125rem;
+}
+
+.pm-guide-availability {
+    font-size: .9rem;
+}
+
+.pm-guide-dialog {
+    inline-size: min(58rem, calc(100% - 2rem));
+    max-block-size: calc(100dvh - 2rem);
+    padding: 0;
+    border: 1px solid var(--arcane-border);
+    border-radius: var(--arcane-radius-large);
+    background: var(--arcane-surface);
+    color: var(--text-color);
+}
+
+.pm-guide-dialog::backdrop {
+    background: color-mix(in srgb, var(--text-color) 30%, transparent);
+}
+
+.pm-guide-dialog-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem;
+    border-block-end: 1px solid var(--arcane-border);
+}
+
+.pm-guide-dialog-body {
+    padding: 1rem;
+}
+
+.pm-recent-handoffs {
+    display: grid;
+    gap: .5rem;
+    padding: .85rem 1.1rem;
+    border: 1px solid var(--arcane-border);
+    border-radius: var(--arcane-radius-medium);
+}
+
+.pm-recent-handoffs h2 {
+    font-size: 1.25rem;
+}
+
+.pm-recent-handoffs > p {
+    color: var(--arcane-muted);
+}
+
+.pm-recent-handoffs .arcane-button {
+    justify-self: end;
+    border: 0;
+    padding: .25rem;
+    box-shadow: none;
+    background: transparent;
+    color: var(--accent-color);
+}
+
+.pm-recent-handoffs-heading,
+.pm-recent-handoffs .pm-handoff-task-pair {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.pm-recent-handoffs-heading {
+    justify-content: space-between;
+}
+
+.pm-recent-handoffs-status,
+.pm-recent-handoffs-heading p {
+    font-size: .9rem;
+    color: var(--arcane-muted);
+}
+
+.pm-recent-handoff-list {
+    display: grid;
+    gap: .75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pm-recent-handoff {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .25rem 1rem;
+    padding-block: .5rem;
+}
+
+.pm-recent-handoff + .pm-recent-handoff {
+    border-block-start: 1px solid var(--arcane-border);
+}
+
+.pm-recent-handoffs .pm-handoff-task-pair {
+    grid-column: 1;
+    grid-row: 1 / 3;
+}
+
+.pm-recent-handoffs .pm-handoff-task {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: .1rem .6rem;
+    align-items: center;
+    min-inline-size: 0;
+}
+
+.pm-recent-handoffs .pm-handoff-face {
+    grid-row: 1 / 3;
+    inline-size: 3.5rem;
+    block-size: 3.5rem;
+    overflow: hidden;
+}
+
+.pm-recent-handoffs .pm-handoff-face > img {
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.pm-recent-handoffs .pm-handoff-task-label {
+    font-size: .75rem;
+    color: var(--arcane-muted);
+}
+
+.pm-recent-handoffs .pm-handoff-title {
+    grid-column: 2;
+    font-size: 1.1rem;
+}
+
+.pm-recent-handoffs .pm-handoff-status,
+.pm-recent-handoffs .pm-handoff-updated {
+    grid-column: 1;
+    font-size: .85rem;
+    color: var(--arcane-muted);
+}
+
+.pm-recent-handoff > button {
+    grid-column: 2;
+    grid-row: 1 / 5;
 }
 
 /* Records and forms expose complete content in the owning page. */
@@ -696,13 +1214,21 @@ a.pm-task-title:hover {
     white-space: pre-wrap;
 }
 
+.pm-workspace-footer {
+    display: flex;
+    grid-column: 2;
+    grid-row: 3;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .55rem 1.5625rem 1rem;
+    font-size: .875rem;
+    color: var(--arcane-muted);
+}
+
 .pm-status {
-    grid-row: 2;
     margin: 0;
-    padding: var(--arcane-space-3) var(--arcane-space-5);
-    border-block-start: 1px solid var(--arcane-border);
-    background: var(--arcane-surface-raised);
-    color: var(--text-color);
+    color: var(--accent-color);
 }
 
 .pm-status[data-state="error"] {
@@ -715,21 +1241,38 @@ a.pm-task-title:hover {
 }
 
 /* Smaller screens retain the shell and use a compact, explicit navigation. */
-@media (max-width: 86rem) {
+@media (min-width: 92rem) {
+    .pm-column[data-state="working"] .pm-task-card {
+        grid-template-columns: 7rem minmax(0, 1fr);
+    }
+
+    .pm-column[data-state="working"] .pm-task-face {
+        grid-row: 1 / 4;
+    }
+
+    .pm-column[data-state="working"] .pm-task-card h3,
+    .pm-column[data-state="working"] .pm-task-state {
+        grid-column: 2;
+    }
+
+    .pm-column[data-state="working"] .pm-task-description {
+        grid-column: 2;
+    }
+}
+
+@media (max-width: 76rem) {
     .pm-team-layout {
         grid-template-columns: minmax(0, 1fr);
     }
 
     .pm-team-guide {
-        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         align-items: center;
     }
 
-    .pm-guide-face {
-        grid-column: 1;
-        grid-row: 1 / 4;
-        inline-size: 5rem;
-        block-size: 5rem;
+    .pm-guide-portrait {
+        grid-column: 2;
+        grid-row: 1 / 5;
     }
 }
 
@@ -738,7 +1281,16 @@ a.pm-task-title:hover {
         grid-template-columns: minmax(0, 1fr);
     }
 
+    .pm-column {
+        min-block-size: 0;
+    }
+
     .pm-detail-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pm-completed-tasks .pm-task-list,
+    .pm-unobserved-tasks .pm-task-list {
         grid-template-columns: minmax(0, 1fr);
     }
 }
@@ -757,7 +1309,7 @@ a.pm-task-title:hover {
     }
 
     .pm-app[data-navigation="open"] .pm-shell {
-        grid-template-rows: auto minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr) auto;
     }
 
     .pm-app[data-navigation="open"] .pm-sidebar {
@@ -790,6 +1342,13 @@ a.pm-task-title:hover {
 
     .pm-main {
         grid-column: 1;
+        padding: 1rem;
+    }
+
+    .pm-workspace-footer {
+        grid-column: 1;
+        flex-wrap: wrap;
+        padding-inline: 1rem;
     }
 
     .pm-navigation {
@@ -797,8 +1356,8 @@ a.pm-task-title:hover {
     }
 
     .pm-sidebar-bottom {
-        margin-block-start: 0;
-        padding-block-start: 0;
+        margin-block-start: auto;
+        padding-block-start: 1rem;
     }
 }
 
@@ -807,7 +1366,21 @@ a.pm-task-title:hover {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .pm-guide-face {
+    .pm-guide-portrait {
+        grid-column: auto;
+        grid-row: auto;
+    }
+
+    .pm-attention-strip {
+        flex-wrap: wrap;
+    }
+
+    .pm-recent-handoff {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pm-recent-handoff > button {
+        grid-column: 1;
         grid-row: auto;
     }
 

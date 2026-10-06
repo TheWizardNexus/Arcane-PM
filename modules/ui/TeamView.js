@@ -31,13 +31,15 @@ function taskColumn(task, activity) {
         if (activity.state === 'working') return 'working';
         if (activity.state === 'idle') return ['completed', 'complete', 'done'].includes(task.status) ? 'completed' : 'ready';
     }
-    if (['working', 'running', 'in-progress', 'preparing'].includes(task.status)) return 'working';
     if (['completed', 'complete', 'done'].includes(task.status)) return 'completed';
-    return 'ready';
+    // Keep explicit PM statuses separate from historical native observations.
+    if (['working', 'running', 'in-progress', 'preparing'].includes(task.status)) return 'working';
+    if (['idle', 'ready'].includes(task.status)) return 'ready';
+    return 'unobserved';
 }
 
 function statusText(task) {
-    const status = task.status === 'idle' ? 'Ready for an assignment' : task.status.replaceAll('-', ' ');
+    const status = task.status === 'unknown' ? 'Unknown' : task.status.replaceAll('-', ' ');
     return `PM status: ${status}${task.attention ? ' · Needs your input' : ''}`;
 }
 
@@ -274,52 +276,136 @@ function createSavedPortrait(face, modelsReady, signal) {
 
 /** PM task presentation; the data and face owners retain their records and assets. */
 export function mountTeamView(container, options) {
-    const {pmData, projectId, onNavigate, onStatus, signal, modelsReady, workflowsReady, taskActivityReady} = options;
-    const heading = element('div', 'pm-page-heading');
-    const titleBlock = element('div', 'pm-detail-header');
+    const {pmData, projectId, onNavigate, onStatus, signal, modelsReady, workflowsReady, taskActivityReady, getHandoffs} = options;
+    const heading = element('div', 'pm-page-heading pm-team-heading');
+    const titleBlock = element('div', 'pm-team-heading-copy');
     const projectFace = element('div', 'pm-task-face pm-project-avatar', '◇');
     projectFace.setAttribute('aria-hidden', 'true');
     projectFace.hidden = true;
     const titleCopy = element('div', 'pm-task-presentation');
-    const projectLabel = element('p', 'pm-eyebrow', 'Your workspace');
-    titleCopy.append(projectLabel, element('h1', '', 'Your project team'), element('p', '', 'A familiar face for every task.'));
-    titleBlock.append(projectFace, titleCopy);
+    const subtitle = element('p', 'pm-team-subtitle');
+    subtitle.append(element('strong', '', 'A familiar face for every task.'), document.createTextNode(' Local plans and connected Codex tasks.'));
+    titleCopy.append(element('h1', '', 'Your project team'), subtitle);
+    const projectContext = element('div', 'pm-team-project');
+    const projectLabel = element('p', 'pm-eyebrow');
+    projectContext.hidden = !projectId;
+    projectContext.append(projectFace, projectLabel);
+    titleBlock.append(titleCopy, projectContext);
     const actions = element('div', 'pm-actions');
-    actions.append(action('Add existing project', openProjectForm, true), action('Add a task', openTaskForm));
+    const addTask = action('Add a task', openTaskForm);
+    addTask.classList.add('pm-add-task');
+    const addProject = action('Add existing project', openProjectForm);
+    addProject.className = 'arcane-button arcane-button--tertiary pm-add-project';
+    actions.append(addTask, addProject);
     heading.append(titleBlock, actions);
     const editor = element('section', 'pm-editor');
+    const attentionStrip = element('section', 'pm-attention-strip');
+    attentionStrip.setAttribute('aria-label', 'Tasks needing attention');
+    attentionStrip.hidden = true;
+    const attentionIcon = element('span', 'pm-attention-icon', '!');
+    attentionIcon.setAttribute('aria-hidden', 'true');
+    const attentionText = element('p', '');
+    const attentionAction = action('Take a look →', openAttentionTask);
+    attentionAction.className = 'arcane-button arcane-button--tertiary pm-attention-action';
+    const dismissAttention = action('×', dismissAttentionStrip);
+    dismissAttention.className = 'arcane-icon-button pm-attention-dismiss';
+    dismissAttention.setAttribute('aria-label', 'Dismiss attention summary');
+    attentionStrip.append(attentionIcon, attentionText, attentionAction, dismissAttention);
     const overview = element('div', 'pm-team-layout');
     const board = element('div', 'pm-board');
     const guide = element('aside', 'pm-team-guide arcane-card');
     const guideImage = element('img', 'pm-guide-face');
     guideImage.src = './assets/project-guide.png';
     guideImage.alt = '';
-    guide.append(element('h2', '', 'Project guide'), guideImage, element('p', '', 'Keep assignments, decisions and the next step together.'), action('Prepare locally', openLocalPreparation, true));
+    const guidePortrait = element('div', 'pm-guide-portrait');
+    guidePortrait.setAttribute('aria-hidden', 'true');
+    guidePortrait.append(guideImage);
+    const guideSummary = element('ul', 'pm-guide-summary');
+    const guideAttention = element('li', '', 'Opening task records…');
+    const guideReady = element('li', '');
+    guideReady.hidden = true;
+    const guideUnobserved = element('li', '');
+    guideUnobserved.hidden = true;
+    const showUnobserved = action('Unobserved tasks', openUnobserved);
+    showUnobserved.className = 'arcane-button arcane-button--tertiary pm-guide-unobserved';
+    showUnobserved.setAttribute('aria-controls', 'pm-unobserved-tasks');
+    guideUnobserved.append(showUnobserved);
+    guideSummary.append(guideAttention, guideReady, guideUnobserved);
+    const guideButton = action('Talk to your guide', openGuide);
+    guideButton.classList.add('pm-guide-open');
+    guideButton.disabled = true;
+    const guideAvailability = element('p', 'pm-guide-availability', projectId ? 'Opening project guide…' : 'Select a project to open its guide.');
+    const preparation = action('Prepare locally', openLocalPreparation);
+    preparation.className = 'arcane-button arcane-button--tertiary pm-guide-preparation';
+    guide.append(element('h2', '', 'Project guide'), element('p', 'pm-guide-subtitle', 'Coordinator · Local'), guidePortrait, element('h3', '', 'Let’s keep things moving.'), guideSummary, guideButton, guideAvailability, preparation);
     overview.append(board, guide);
-    container.replaceChildren(heading, editor, overview);
+    const completed = element('div', 'pm-completed-tasks');
+    completed.hidden = true;
+    const unobserved = element('div', 'pm-unobserved-tasks');
+    unobserved.id = 'pm-unobserved-tasks';
+    unobserved.hidden = true;
+    const recentHandoffs = element('section', 'pm-recent-handoffs arcane-card');
+    const handoffHeading = element('div', 'pm-recent-handoffs-heading');
+    const handoffCopy = element('div', '');
+    handoffCopy.append(element('h2', '', 'Recent handoffs'), element('p', 'pm-muted', 'Review saved handoffs and prepare the next step.'));
+    const viewHandoffs = action('View handoffs →', openHandoffs);
+    viewHandoffs.className = 'arcane-button arcane-button--tertiary';
+    handoffHeading.append(handoffCopy, viewHandoffs);
+    const handoffStatus = element('p', 'pm-recent-handoffs-status', 'Opening saved handoffs…');
+    handoffStatus.setAttribute('role', 'status');
+    const handoffList = element('ol', 'pm-recent-handoff-list');
+    recentHandoffs.append(handoffHeading, handoffStatus, handoffList);
+    const guideDialog = element('dialog', 'pm-guide-dialog');
+    guideDialog.setAttribute('aria-labelledby', 'pm-guide-dialog-title');
+    const dialogHeading = element('div', 'pm-guide-dialog-heading');
+    const dialogTitle = element('h2', '', 'Project guide');
+    dialogTitle.id = 'pm-guide-dialog-title';
+    const closeGuideButton = action('Close', closeGuide, true);
+    closeGuideButton.autofocus = true;
+    dialogHeading.append(dialogTitle, closeGuideButton);
+    const guideBody = element('div', 'pm-guide-dialog-body');
+    guideDialog.append(dialogHeading, guideBody);
+    guideDialog.addEventListener('close', restoreGuideFocus);
+    container.replaceChildren(heading, editor, attentionStrip, overview, recentHandoffs, completed, unobserved, guideDialog);
     let disposed = false;
     let revision = 0;
     let guideView;
+    let guideService;
+    let dismissedAttentionIds = new Set();
+    let tasksLoaded = false;
+    let taskReadFailed = false;
     let records = new Map();
     let pendingScan;
     let taskActivity;
     let unsubscribeActivity;
     let projectRevision = 0;
+    const handoffLifetime = new AbortController();
+    const handoffSignal = signal ? AbortSignal.any([signal, handoffLifetime.signal]) : handoffLifetime.signal;
+    const handoffPortraits = new Set();
+    const handoffTasks = new Map();
     const avatars = createAvatarPresentation(modelsReady, {signal, onStatus});
     const projectAvatar = projectId ? avatars.add('project', projectId) : null;
     const projectPortrait = projectId ? createSavedPortrait(projectFace, modelsReady, signal) : null;
-    if (projectAvatar) titleCopy.append(projectAvatar.node);
+    const guideSavedPortrait = projectId ? createSavedPortrait(guidePortrait, modelsReady, signal) : null;
+    if (projectAvatar) projectContext.append(projectAvatar.node);
     const cards = new Map();
     const columns = new Map();
-    const empty = element('section', 'pm-empty arcane-card');
-    empty.append(element('h2', '', 'Make room for your next idea'), element('p', '', 'Add an existing project and a task to begin organizing your work. You can prepare locally while your Codex connection is unavailable.'));
-    empty.hidden = true;
+    const pageSize = 2;
+    const orderedTaskIds = [];
+    const taskIndex = new Map();
+    const changedTaskIds = new Set();
+    const changedColumns = new Set();
+    let replaceTaskIndex = true;
+    let regroupTasks = false;
+    let summaryChanged = true;
+    let renderFrame = null;
     const notice = element('p', 'pm-notice', 'Local records are unavailable. Use a browser with local storage support, then reopen this page.');
     notice.hidden = true;
     const definitions = [
         {id: 'working', title: 'Working'},
         {id: 'attention', title: 'Needs you'},
         {id: 'ready', title: 'Ready next'},
+        {id: 'unobserved', title: 'Unobserved'},
         {id: 'completed', title: 'Completed'}
     ];
     for (const definition of definitions) {
@@ -328,15 +414,51 @@ export function mountTeamView(container, options) {
         column.hidden = true;
         const header = element('header', '');
         const count = element('p', 'pm-muted');
-        header.append(element('h2', '', definition.title), count);
+        const columnTitle = element('h2', '', definition.title);
+        columnTitle.tabIndex = -1;
+        header.append(columnTitle, count);
         const list = element('div', 'pm-task-list');
         const columnEmpty = element('p', 'pm-column-empty', 'No tasks here.');
         list.append(columnEmpty);
         column.append(header, list);
-        columns.set(definition.id, {column, count, list, empty: columnEmpty});
-        board.append(column);
+        if (definition.id === 'unobserved') {
+            header.append(element('p', 'pm-muted', 'Current activity is unconfirmed. Open a task for its saved details.'));
+        }
+        const pagination = element('nav', 'pm-column-pagination');
+        pagination.setAttribute('aria-label', `${definition.title} task pages`);
+        pagination.hidden = true;
+        const previous = action('Previous', previousPage, true);
+        previous.setAttribute('aria-label', `Previous ${definition.title} page`);
+        const indicator = element('span', 'pm-page-indicator');
+        indicator.setAttribute('role', 'status');
+        const next = action('Next', nextPage, true);
+        next.setAttribute('aria-label', `Next ${definition.title} page`);
+        pagination.append(previous, indicator, next);
+        column.append(pagination);
+        const group = {
+            column, title: columnTitle, count, list, empty: columnEmpty, pagination, previous, indicator, next,
+            taskIds: [], visibleIds: new Set(), page: 0
+        };
+        columns.set(definition.id, group);
+        changedColumns.add(definition.id);
+        const region = definition.id === 'completed' ? completed : definition.id === 'unobserved' ? unobserved : board;
+        region.append(column);
+
+        function previousPage() {
+            if (group.page > 0) changePage(group.page - 1);
+        }
+
+        function nextPage() {
+            if ((group.page + 1) * pageSize < group.taskIds.length) changePage(group.page + 1);
+        }
+
+        function changePage(page) {
+            group.page = page;
+            changedColumns.add(definition.id);
+            scheduleBoard();
+        }
     }
-    board.append(empty, notice);
+    board.append(notice);
 
     async function openSelectedProject() {
         if (!projectId) return;
@@ -356,11 +478,139 @@ export function mountTeamView(container, options) {
         projectFace.hidden = !project;
         projectLabel.textContent = project ? project.name : 'Selected project unavailable';
         projectPortrait.update(project?.faceRef ?? null);
+        guideSavedPortrait.update(project?.faceRef ?? null);
+        if (!project?.faceRef) guidePortrait.replaceChildren(guideImage);
         projectAvatar.update(project);
     }
 
     function openLocalPreparation() {
         onNavigate('local-ai', {projectId});
+    }
+
+    function openUnobserved() {
+        if (disposed || signal?.aborted || unobserved.hidden) return;
+        unobserved.scrollIntoView(
+            {block: 'start'}
+        );
+        columns.get('unobserved').title.focus(
+            {preventScroll: true}
+        );
+    }
+
+    function openHandoffs() {
+        onNavigate('handoffs', {projectId});
+    }
+
+    async function openRecentHandoffs() {
+        if (!getHandoffs) {
+            handoffStatus.textContent = 'Open Handoffs to review your saved records.';
+            return;
+        }
+        let saved = [];
+        let incomplete = false;
+        try {
+            const {handoffs} = await getHandoffs();
+            if (disposed || handoffSignal.aborted) return;
+            saved = await handoffs.list({projectId: projectId || undefined, signal: handoffSignal});
+        } catch (error) {
+            if (disposed || handoffSignal.aborted) return;
+            console.error('Arcane PM recent handoffs could not all be opened.', error);
+            incomplete = true;
+            saved = error.records || [];
+        }
+        if (disposed || handoffSignal.aborted) return;
+        for (const record of saved) renderRecentHandoff(record);
+        handoffStatus.textContent = incomplete
+            ? 'Some saved handoffs could not be read. Open Handoffs to try again.'
+            : saved.length ? '' : 'No saved handoffs yet.';
+        handoffStatus.hidden = !handoffStatus.textContent;
+        await Promise.all([...handoffTasks].map(openHandoffTask));
+    }
+
+    function renderRecentHandoff(record) {
+        const row = element('li', 'pm-recent-handoff');
+        const pair = element('div', 'pm-handoff-task-pair');
+        pair.append(handoffTask(record.fromTaskId, 'From'), handoffTask(record.toTaskId, 'To'));
+        const status = element('p', 'pm-handoff-status', `Handoff status: ${record.status}`);
+        row.append(pair, status);
+        const updated = element('time', 'pm-handoff-updated', record.updatedAt);
+        updated.dateTime = record.updatedAt;
+        const open = action('Open handoff →', function openSavedHandoff() {
+            onNavigate('handoffs', {projectId: record.projectId, handoffId: record.id});
+        }, true);
+        row.append(updated, open);
+        handoffList.append(row);
+    }
+
+    function handoffTask(id, label) {
+        const task = element('div', 'pm-handoff-task');
+        const face = element('div', 'pm-handoff-face pm-task-face', '◇');
+        face.setAttribute('aria-hidden', 'true');
+        const name = element('span', 'pm-handoff-title', id ? 'Opening task…' : 'Task not selected');
+        task.append(face, element('span', 'pm-handoff-task-label', label), name);
+        if (id) {
+            const portrait = createSavedPortrait(face, modelsReady, handoffSignal);
+            handoffPortraits.add(portrait);
+            if (!handoffTasks.has(id)) handoffTasks.set(id, []);
+            handoffTasks.get(id).push({name, portrait});
+        }
+        return task;
+    }
+
+    async function openHandoffTask([id, presentations]) {
+        let task;
+        try {
+            task = records.get(id) || await pmData.getTask(id);
+        } catch (error) {
+            if (disposed || handoffSignal.aborted) return;
+            console.error('Arcane PM handoff task could not be opened.', id, error);
+            handoffStatus.hidden = false;
+            handoffStatus.textContent = 'Some saved handoff details could not be read. Open Handoffs to try again.';
+        }
+        if (disposed || handoffSignal.aborted) return;
+        for (const {name, portrait} of presentations) {
+            name.textContent = task ? task.title : 'Task record unavailable';
+            portrait.update(task?.faceRef ?? null);
+        }
+    }
+
+    function openAttentionTask() {
+        const task = records.get(columns.get('attention').taskIds[0]);
+        if (task) onNavigate('task', {projectId: task.projectId, taskId: task.id});
+    }
+
+    function dismissAttentionStrip() {
+        dismissedAttentionIds = new Set(columns.get('attention').taskIds);
+        attentionStrip.hidden = true;
+    }
+
+    function isDismissedAttention(id) {
+        return dismissedAttentionIds.has(id);
+    }
+
+    function openGuide() {
+        if (disposed || signal?.aborted || !projectId || !guideService) return;
+        try {
+            if (!guideView) {
+                // Keep one mounted guide so closing the dialog preserves its entered drafts.
+                guideView = guideService.mountGuideView(
+                    guideBody,
+                    {workflows: guideService.workflows, pmData, projectId, onNavigate, onStatus, signal}
+                );
+            }
+            guideDialog.showModal();
+        } catch (error) {
+            console.error('Arcane PM project guide could not be opened.', error);
+            onStatus('The project guide could not be opened. Try opening it again.');
+        }
+    }
+
+    function closeGuide() {
+        guideDialog.close();
+    }
+
+    function restoreGuideFocus() {
+        if (!disposed && !signal?.aborted && guideButton.isConnected) guideButton.focus();
     }
 
     function reportFailure(error) {
@@ -456,12 +706,20 @@ export function mountTeamView(container, options) {
         face.setAttribute('aria-hidden', 'true');
         const title = element('h3', 'pm-task-title', task.title);
         const state = element('p', 'pm-task-state', statusText(task));
-        const description = element('p', 'pm-task-description', task.attention?.message || task.nextAction || task.assignment || 'Choose the next step for this task.');
+        const description = element('p', 'pm-task-description');
         const activity = createTaskActivityPresentation();
         const avatar = avatars.add('task', task.id);
+        const preparation = element('details', 'pm-task-extra');
+        const preparationSummary = element('summary', '');
+        preparationSummary.append(avatar.node.firstElementChild);
+        preparation.append(preparationSummary, avatar.node);
+        const observation = element('details', 'pm-task-extra');
+        const observationSummary = element('summary', '');
+        observationSummary.append(activity.node.firstElementChild);
+        observation.append(observationSummary, activity.node);
         const open = action('Open task →', openTask, true);
         open.classList.add('pm-task-link');
-        card.append(face, title, state, avatar.node, activity.node, description, open);
+        card.append(face, title, state, description, preparation, observation, open);
         const portrait = createSavedPortrait(face, modelsReady, signal);
         return {node: card, update, dispose};
 
@@ -472,10 +730,11 @@ export function mountTeamView(container, options) {
         function update(nextTask) {
             currentTask = nextTask;
             const nextState = statusText(nextTask);
-            const nextDescription = nextTask.attention?.message || nextTask.nextAction || nextTask.assignment || 'Choose the next step for this task.';
+            const nextDescription = nextTask.attention?.message || nextTask.nextAction || '';
             if (title.textContent !== nextTask.title) title.textContent = nextTask.title;
             if (state.textContent !== nextState) state.textContent = nextState;
             if (description.textContent !== nextDescription) description.textContent = nextDescription;
+            description.hidden = !nextDescription;
             activity.update(nextTask, taskActivity?.current(nextTask.id));
             portrait.update(nextTask.faceRef);
             avatar.update(nextTask);
@@ -502,51 +761,188 @@ export function mountTeamView(container, options) {
         if (change.recordType !== 'task') return;
         pendingScan?.set(change.id, change.record);
         retainRecord(records, change.id, change.record);
-        renderBoard(change.id);
+        changedTaskIds.add(change.id);
+        scheduleBoard();
     }
 
-    function renderBoard(changedTaskId = null) {
-        if (disposed || signal?.aborted) return;
-        const tasks = [...records.values()].sort(function orderTasks(left, right) {
-            const created = String(left.createdAt).localeCompare(String(right.createdAt));
-            return created || left.id.localeCompare(right.id);
-        });
-        empty.hidden = Boolean(tasks.length);
-        const taskIds = new Set();
-        for (const task of tasks) taskIds.add(task.id);
-        for (const [id, card] of cards) {
-            if (taskIds.has(id)) continue;
-            card.dispose();
-            card.node.remove();
-            cards.delete(id);
+    function scheduleBoard() {
+        if (disposed || signal?.aborted || renderFrame !== null) return;
+        renderFrame = requestAnimationFrame(renderBoard);
+    }
+
+    function compareTasks(leftId, rightId) {
+        const leftCreated = taskIndex.get(leftId)?.createdAt ?? records.get(leftId)?.createdAt;
+        const rightCreated = taskIndex.get(rightId)?.createdAt ?? records.get(rightId)?.createdAt;
+        const created = String(leftCreated).localeCompare(String(rightCreated));
+        return created || leftId.localeCompare(rightId);
+    }
+
+    function insertTaskId(ids, id) {
+        let lower = 0;
+        let upper = ids.length;
+        while (lower < upper) {
+            const middle = Math.floor((lower + upper) / 2);
+            if (compareTasks(ids[middle], id) < 0) lower = middle + 1;
+            else upper = middle;
         }
-        for (const task of tasks) {
-            let card = cards.get(task.id);
-            const created = !card;
-            if (created) {
-                card = renderCard(task);
-                cards.set(task.id, card);
+        ids.splice(lower, 0, id);
+    }
+
+    function removeTaskId(ids, id) {
+        const position = ids.indexOf(id);
+        if (position !== -1) ids.splice(position, 1);
+    }
+
+    function discardCard(id) {
+        const card = cards.get(id);
+        if (!card) return;
+        card.dispose();
+        card.node.remove();
+        cards.delete(id);
+    }
+
+    function updateTaskIndex(id) {
+        const task = records.get(id);
+        const previous = taskIndex.get(id);
+        const groupId = task ? taskColumn(task, taskActivity?.current(id)) : null;
+        const orderChanged = previous && previous.createdAt !== task?.createdAt;
+        if (previous && (!task || orderChanged)) removeTaskId(orderedTaskIds, id);
+        if (task) taskIndex.set(
+            id,
+            {groupId, createdAt: task.createdAt}
+        );
+        if (task && (!previous || orderChanged)) insertTaskId(orderedTaskIds, id);
+        if (regroupTasks) {
+            // A coverage-wide update rebuilds groups once after record ordering is current.
+            if (!task) {
+                taskIndex.delete(id);
+                discardCard(id);
             }
-            if (created || changedTaskId === null || changedTaskId === task.id) card.update(task);
-            const column = columns.get(taskColumn(task, taskActivity?.current(task.id)));
-            if (card.node.parentElement !== column.list) column.list.insertBefore(card.node, column.empty);
+            return;
         }
+        if (previous && (!task || previous.groupId !== groupId || orderChanged)) {
+            removeTaskId(columns.get(previous.groupId).taskIds, id);
+            changedColumns.add(previous.groupId);
+            summaryChanged = true;
+        }
+        if (!task) {
+            taskIndex.delete(id);
+            discardCard(id);
+            return;
+        }
+        if (!previous || previous.groupId !== groupId || orderChanged) {
+            insertTaskId(columns.get(groupId).taskIds, id);
+            summaryChanged = true;
+        }
+        changedColumns.add(groupId);
+    }
+
+    function rebuildGroups() {
+        taskIndex.clear();
         for (const [id, column] of columns) {
-            const group = tasks.filter(function belongsInColumn(task) { return taskColumn(task, taskActivity?.current(task.id)) === id; });
-            column.column.hidden = !tasks.length || (id === 'completed' && !group.length);
-            column.count.textContent = `${group.length} ${group.length === 1 ? 'task' : 'tasks'}`;
-            column.empty.hidden = Boolean(group.length);
-            for (const [index, task] of group.entries()) {
-                const card = cards.get(task.id);
-                // Stable task ordering leaves unchanged cards and their focused controls in place.
-                const position = column.list.children[index];
-                if (position !== card.node) column.list.insertBefore(card.node, position || null);
+            column.taskIds.length = 0;
+            changedColumns.add(id);
+        }
+        // The ordered index is reused when connection coverage changes for all tasks.
+        for (const id of orderedTaskIds) {
+            const task = records.get(id);
+            const groupId = taskColumn(task, taskActivity?.current(id));
+            columns.get(groupId).taskIds.push(id);
+            taskIndex.set(
+                id,
+                {groupId, createdAt: task.createdAt}
+            );
+        }
+        summaryChanged = true;
+    }
+
+    function renderColumn(id, column) {
+        const total = column.taskIds.length;
+        const pages = Math.max(1, Math.ceil(total / pageSize));
+        column.page = Math.min(column.page, pages - 1);
+        const start = column.page * pageSize;
+        const end = Math.min(start + pageSize, total);
+        const visibleIds = new Set();
+        for (let index = start; index < end; index++) visibleIds.add(column.taskIds[index]);
+        for (const taskId of column.visibleIds) {
+            if (visibleIds.has(taskId)) continue;
+            const card = cards.get(taskId);
+            if (card?.node.parentElement === column.list) card.node.remove();
+        }
+        let position = 0;
+        for (const taskId of visibleIds) {
+            const task = records.get(taskId);
+            let card = cards.get(taskId);
+            if (!card) {
+                card = renderCard(task);
+                cards.set(taskId, card);
             }
+            card.update(task);
+            // Keep already-visible DOM and expanded disclosures in place.
+            const current = column.list.children[position++];
+            if (current !== card.node) column.list.insertBefore(card.node, current || null);
+        }
+        column.visibleIds = visibleIds;
+        column.column.hidden = (id === 'completed' || id === 'unobserved') && !total;
+        const countText = `${total} ${total === 1 ? 'task' : 'tasks'}`;
+        const readingText = taskReadFailed ? 'Other records unavailable' : 'Opening records…';
+        column.count.textContent = tasksLoaded ? countText : total ? `${countText} loaded · ${readingText}` : taskReadFailed ? 'Unavailable' : 'Opening tasks…';
+        column.empty.hidden = !tasksLoaded || Boolean(total);
+        column.pagination.hidden = !total;
+        column.previous.disabled = column.page === 0;
+        column.next.disabled = column.page + 1 >= pages;
+        column.indicator.textContent = total ? `${start + 1}–${end} of ${total}${tasksLoaded ? '' : ' loaded'} · Page ${column.page + 1} of ${pages}` : '';
+        if (id === 'completed') completed.hidden = !total;
+        if (id === 'unobserved') unobserved.hidden = !total;
+    }
+
+    function renderSummary() {
+        const attentionIds = columns.get('attention').taskIds;
+        const attentionCount = attentionIds.length;
+        const readyCount = columns.get('ready').taskIds.length;
+        const unobservedCount = columns.get('unobserved').taskIds.length;
+        if (tasksLoaded) {
+            attentionText.textContent = `${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} your attention.`;
+            guideAttention.textContent = `${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} attention`;
+            guideReady.textContent = `${readyCount} ${readyCount === 1 ? 'task' : 'tasks'} ready next`;
+            guideReady.hidden = false;
+            showUnobserved.textContent = `${unobservedCount} ${unobservedCount === 1 ? 'task' : 'tasks'} unobserved`;
+        }
+        guideUnobserved.hidden = !tasksLoaded || !unobservedCount;
+        attentionStrip.hidden = !tasksLoaded || !attentionCount || (dismissedAttentionIds.size === attentionCount && attentionIds.every(isDismissedAttention));
+    }
+
+    function renderBoard() {
+        renderFrame = null;
+        if (disposed || signal?.aborted) return;
+        if (replaceTaskIndex) {
+            taskIndex.clear();
+            orderedTaskIds.length = 0;
+            for (const id of records.keys()) orderedTaskIds.push(id);
+            orderedTaskIds.sort(compareTasks);
+            for (const id of cards.keys()) {
+                if (!records.has(id)) discardCard(id);
+            }
+            rebuildGroups();
+        } else {
+            for (const id of changedTaskIds) updateTaskIndex(id);
+            if (regroupTasks) rebuildGroups();
+        }
+        replaceTaskIndex = false;
+        regroupTasks = false;
+        changedTaskIds.clear();
+        const columnsToRender = [...changedColumns];
+        changedColumns.clear();
+        for (const id of columnsToRender) renderColumn(id, columns.get(id));
+        if (summaryChanged) {
+            summaryChanged = false;
+            renderSummary();
         }
     }
 
     async function refresh() {
         const currentRevision = ++revision;
+        taskReadFailed = false;
         const changes = new Map();
         pendingScan = changes;
         try {
@@ -556,12 +952,18 @@ export function mountTeamView(container, options) {
             for (const task of tasks) retainRecord(next, task.id, task);
             for (const [id, record] of changes) retainRecord(next, id, record);
             records = next;
+            tasksLoaded = true;
             notice.hidden = true;
-            renderBoard();
+            replaceTaskIndex = true;
+            scheduleBoard();
         } catch (error) {
             if (disposed || signal?.aborted || revision !== currentRevision) return;
             console.error('Arcane PM task records could not be opened.', error);
+            taskReadFailed = true;
             notice.hidden = false;
+            for (const id of columns.keys()) changedColumns.add(id);
+            scheduleBoard();
+            if (!tasksLoaded) guideAttention.textContent = 'Task records are unavailable.';
         } finally {
             if (pendingScan === changes) pendingScan = null;
         }
@@ -574,7 +976,11 @@ export function mountTeamView(container, options) {
     }
 
     function activityChanged({taskId}) {
-        if (taskId === null || records.has(taskId)) renderBoard(taskId);
+        if (disposed || signal?.aborted) return;
+        if (taskId === null) regroupTasks = true;
+        else if (records.has(taskId)) changedTaskIds.add(taskId);
+        else return;
+        scheduleBoard();
     }
 
     function activityFailed(error) {
@@ -586,30 +992,53 @@ export function mountTeamView(container, options) {
     function mountGuide(service) {
         if (disposed || signal?.aborted) return;
         if (projectId && service?.mountGuideView) {
-            guide.replaceChildren();
-            guide.className = 'pm-guide-region';
-            guideView = service.mountGuideView(guide, {workflows: service.workflows, pmData, projectId, onNavigate, onStatus, signal});
+            guideService = service;
+            guideButton.disabled = false;
+            guideAvailability.hidden = true;
         }
     }
 
     function guideFailed(error) {
-        if (!signal?.aborted) console.error('Arcane PM project guide is unavailable.', error);
+        if (disposed || signal?.aborted) return;
+        console.error('Arcane PM project guide is unavailable.', error);
+        guideAvailability.textContent = 'Project guide is unavailable. Your task details remain available.';
+        guideAvailability.hidden = false;
     }
 
     workflowsReady?.then(mountGuide).catch(guideFailed);
     taskActivityReady?.then(connectActivity).catch(activityFailed);
     const unsubscribe = pmData.subscribe(recordChanged, {signal});
+    scheduleBoard();
     refresh();
     openSelectedProject();
+    openRecentHandoffs().catch(function recentHandoffsFailed(error) {
+        if (disposed || handoffSignal.aborted) return;
+        console.error('Arcane PM recent handoff presentation failed.', error);
+        handoffStatus.hidden = false;
+        handoffStatus.textContent = 'Saved handoffs could not be displayed. Open Handoffs to try again.';
+    });
     function dispose() {
         disposed = true;
+        if (renderFrame !== null) cancelAnimationFrame(renderFrame);
+        renderFrame = null;
+        handoffLifetime.abort();
         unsubscribe();
         unsubscribeActivity?.();
         avatars.dispose();
         projectPortrait?.dispose();
+        guideSavedPortrait?.dispose();
+        if (guideDialog.open) guideDialog.close();
+        guideDialog.removeEventListener('close', restoreGuideFocus);
         guideView?.dispose();
+        for (const portrait of handoffPortraits) portrait.dispose();
+        handoffPortraits.clear();
+        handoffTasks.clear();
         for (const card of cards.values()) card.dispose();
         cards.clear();
+        orderedTaskIds.length = 0;
+        taskIndex.clear();
+        changedTaskIds.clear();
+        changedColumns.clear();
     }
     return {refresh, dispose};
 }

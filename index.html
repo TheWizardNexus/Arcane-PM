@@ -369,44 +369,45 @@
             <a class="pm-brand" href="#team" aria-label="Arcane PM home">
                 <svg viewBox="0 0 64 64" width="52" height="52" aria-hidden="true" fill="none">
                     <path d="M47 9A27 27 0 1 0 58 28" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></path>
-                    <path d="m32 12 19 36H13L32 12Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"></path>
-                    <path d="m32 23 3 10 10 3-10 3-3 10-3-10-10-3 10-3 3-10Z" fill="currentColor"></path>
+                    <circle cx="55" cy="15" r="2.5" fill="currentColor"></circle>
+                    <path d="M29 14Q32 9 35 14L50 43Q54 49 47 49H17Q10 49 14 43Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"></path>
+                    <path d="M32 20C33.5 29 35 31.5 43 33C35 34.5 33.5 37 32 45C30.5 37 29 34.5 21 33C29 31.5 30.5 29 32 20Z" fill="currentColor"></path>
                 </svg>
                 <span><strong>Arcane PM</strong><small>by TWiN</small></span>
             </a>
             <div class="pm-project-field arcane-field">
                 <label for="pm-project">Project</label>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M3 5h6l2 2h10v12H3z"></path></svg>
                 <select id="pm-project"><option value="">All projects</option></select>
             </div>
             <nav class="pm-navigation" aria-label="Workspace">
-                <a href="#team" data-route="team" aria-current="page"><span aria-hidden="true">◉</span> Your team</a>
-                <a href="#sources" data-route="sources"><span aria-hidden="true">⌕</span> Find anything</a>
-                <a href="#handoffs" data-route="handoffs"><span aria-hidden="true">→</span> Handoffs</a>
-                <a href="#cleanup" data-route="cleanup"><span aria-hidden="true">✧</span> Tidy up</a>
-                <a href="#local-ai" data-route="local-ai"><span aria-hidden="true">◇</span> Local preparation</a>
+                <a href="#team" data-route="team" aria-current="page"><svg class="pm-nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="9" cy="7" r="4"></circle><path d="M1 21v-3a8 8 0 0 1 16 0v3zM17 3a4 4 0 0 1 0 8v-2a3 3 0 0 0 0-6zM18 13a7 7 0 0 1 5 7v1h-4v-3a10 10 0 0 0-1-5z"></path></svg> Your team</a>
+                <a href="#sources" data-route="sources"><svg class="pm-nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7"></circle><path d="m16 16 6 6"></path></svg> Find anything</a>
+                <a href="#handoffs" data-route="handoffs"><svg class="pm-nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h19m-7-7 7 7-7 7"></path></svg> Handoffs</a>
+                <a href="#cleanup" data-route="cleanup"><svg class="pm-nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m9 2 2.5 6.5L18 11l-6.5 2.5L9 20l-2.5-6.5L0 11l6.5-2.5zM20 15l1.2 3.2L24 19l-2.8 1.2L20 24l-1.2-3.8L16 19l2.8-.8z"></path></svg> Tidy up</a>
             </nav>
             <div class="pm-sidebar-bottom">
+                <html-import class="pm-theme-control" href="./node_modules/arcane-os/runtime/arcane/components/theme-switcher.html" aria-label="Color scheme" data-modes="light dark system" data-system-label="System"></html-import>
                 <nav class="pm-navigation" aria-label="Workspace settings">
-                    <a href="#connections" data-route="connections"><span aria-hidden="true">⇄</span> Connections</a>
+                    <a href="#connections" data-route="connections"><svg class="pm-nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v6m8-6v6M6 8h12v5a6 6 0 0 1-12 0zm6 11v4"></path></svg> Connections</a>
                 </nav>
-                <section class="pm-appearance" aria-labelledby="pm-appearance-label">
-                    <h2 id="pm-appearance-label">Appearance</h2>
-                    <html-import href="./node_modules/arcane-os/runtime/arcane/components/theme-switcher.html" aria-label="Appearance"></html-import>
-                </section>
-                <p class="pm-local-caption">Your project workspace<br><span>Application in development</span></p>
+                <div class="pm-local-caption">
+                    <span class="pm-workspace-avatar" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="16" cy="11" r="6"></circle><path d="M5 29v-3a11 11 0 0 1 22 0v3"></path></svg></span>
+                    <p>Local workspace<br><a class="pm-preparation-link" href="#local-ai" data-route="local-ai">Local preparation</a></p>
+                </div>
             </div>
         </aside>
         <header class="pm-topbar">
             <button class="pm-mobile-menu arcane-button arcane-button--secondary" type="button" aria-controls="pm-navigation" aria-expanded="false"><span class="pm-menu-open-label">Menu</span><span class="pm-menu-close-label">Close menu</span></button>
-            <button class="pm-search-button" type="button" aria-keyshortcuts="Control+K Meta+K"><span>Find a task, chat or file</span><kbd>Ctrl K</kbd></button>
+            <button class="pm-search-button" type="button" aria-keyshortcuts="Control+K Meta+K"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7"></circle><path d="m16 16 6 6"></path></svg><span>Find a task, chat or file</span><kbd>Ctrl K</kbd></button>
             <a class="pm-connection-status" href="#connections">Codex connection unavailable</a>
         </header>
         <main class="pm-main" id="pm-content" tabindex="-1">
             <div class="pm-page-heading"><div><p class="pm-eyebrow">Your workspace</p><h1>Your project team</h1><p>A familiar face for every task.</p></div></div>
             <section class="pm-empty arcane-card"><h2>Opening your workspace</h2><p>Navigation is ready while local records load.</p></section>
         </main>
+        <footer class="pm-workspace-footer"><span>Your project workspace</span><p class="pm-status" role="status" aria-live="polite" hidden></p></footer>
     </div>
-    <p class="pm-status" role="status" aria-live="polite" hidden></p>
     <noscript>Arcane PM needs JavaScript to open local project records.</noscript>
 </body>
 </html>
