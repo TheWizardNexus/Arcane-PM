@@ -57,6 +57,15 @@ The browser PWA implementation is available; actual browser installation remains
 
 On Windows, run `npm run build:windows` to build the native application. Close the existing packaged app normally before rebuilding. The workflow retains one completed app under `build/windows-x64/` and records its location in `build/windows-x64/current.json`. A replacement uses temporary build staging; successful completion removes the older app and staging, while a failed replacement preserves the previous completed app and removes its partial output. User profiles, saved data, models, and reusable runtime caches remain in their existing locations. Complete build diagnostics are saved under `output/foundation/`.
 
+When project hooks use the native relay, refresh its generated context after
+each successful replacement and before launching or resuming hook use:
+`node bridge/codex-hooks/prepare.mjs --native "<selected artifact directory>" --arcane-host-state-root "<actual state root>"`.
+Use the selected artifact from `current.json` and the existing Core's actual
+state-root argument. Compare the next launch's actual directory and Core
+arguments with that prepared context. The project hook command continues to
+point to the stable generated relay under `output/bridge/codex-hooks-native/`.
+See the [native hook preparation contract](bridge/codex-hooks/README.md).
+
 A successful build establishes the selected package result. Connection behavior, window presentation, and other native interactions require acceptance in that packaged app; a browser preview establishes only its own behavior.
 
 The native `pm.modelContext.current` method returns `{workingDirectory}` for
@@ -76,7 +85,7 @@ generation returned by inspection for each action and inspect its actual
 result. Use the returned `shadowPath` to inspect or act within an open component
 shadow root, including the shared appearance control. The connection preserves the application's existing Core, origin,
 profile, and window; closing the controller leaves the application running.
-See the [published app-control API](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.84.0/docs/reference/native-app-control.md).
+See the [published app-control API](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.85.0/docs/reference/native-app-control.md).
 
 The native launch context also selects `coreListener` at
 `\\.\pipe\arcane-pm-core` so local clients can call the running window's existing
@@ -86,7 +95,19 @@ through `connection.client.invoke(method, parameters)`. Close the connection
 when finished. The window continues to own its Core, profile, state root and
 shutdown; a listener client does not start another runtime. The descriptor omits
 `sharedHost`, whose independent lifetime serves a different application setup.
-See the [published existing-Core listener contract](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.84.0/docs/reference/core-shared-host.md#attach-to-an-existing-window-owned-core).
+See the [published existing-Core listener contract](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.85.0/docs/reference/core-shared-host.md#attach-to-an-existing-window-owned-core).
+
+For explicitly selected developer observation, use `subscribeModelObservation`
+from `arcane-os/ai/model-observation` with that existing connection's client.
+`onState` receives complete current owner snapshots; `onDiagnostic` selects
+live correlated failed Core response frames. Await the observer's `ready`
+before the operation to capture, and retain its result before unloading a
+model. Renderer owners attach through the same published observation API.
+Closing observation leaves model execution and the window-owned Core with
+their existing owners. Observation cannot recover earlier response frames or
+establish that an inference failure is fixed. See the
+[published model-observation contract](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.85.0/docs/reference/model-observation.md)
+and [PM's model-owner composition](modules/local-ai/README.md).
 
 ## Explore the designs
 
