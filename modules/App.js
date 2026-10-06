@@ -301,6 +301,7 @@ function renderRoute() {
         taskId: parameters.get('taskId'),
         sourceId: parameters.get('sourceId'),
         handoffId: parameters.get('handoffId'),
+        getHandoffs,
         onNavigate,
         onStatus,
         signal: routeLifetime.signal
