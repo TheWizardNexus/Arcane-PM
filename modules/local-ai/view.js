@@ -763,7 +763,9 @@ export function mountLocalAIView(container, {
         inspectModels(true);
     }, {signal: pageSignal});
     pageSignal.addEventListener('abort', dispose, {once: true});
-    window.addEventListener('pagehide', dispose, {once: true, signal: pageSignal});
+    window.addEventListener('pagehide', function leavePreparationPage(event) {
+        if (!event.persisted) dispose();
+    }, {signal: pageSignal});
 
     if (modelServices?.subscribe) subscriptions.push(modelServices.subscribe(renderModels, {signal: pageSignal}));
     if (imageRuntime?.subscribe) subscriptions.push(imageRuntime.subscribe(renderImageModels, {replay: true, signal: pageSignal}));
