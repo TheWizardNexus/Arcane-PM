@@ -435,6 +435,12 @@ async function setRecordFaceIfEmpty(recordType, id, faceRef, {isCurrent, signal}
     });
 }
 
+function sameNativeTask(left, right) {
+    return left?.provider === 'codex' && right?.provider === 'codex'
+        && hasNativeText(left.hostId) && left.hostId === right.hostId
+        && hasNativeText(left.threadId) && left.threadId === right.threadId;
+}
+
 function sameNativeOrigin(left, right) {
     return left?.provider === 'codex' && right?.provider === 'codex'
         && left.accountId === right.accountId && left.hostId === right.hostId
@@ -751,13 +757,13 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
         const taskWork = runItems([...uniqueThreads.values()], async function importNativeThread(thread) {
             const origin = {provider: 'codex', accountId: identity.accountId, hostId: identity.hostId, threadId: thread.id};
             const candidates = tasksByThread.get(thread.id) || [];
-            const matched = candidates.filter(function exactTask(task) { return sameNativeOrigin(task.origin, origin); });
+            const matched = candidates.filter(function exactTask(task) { return sameNativeTask(task.origin, origin); });
             if (matched.length) {
                 for (const candidate of matched) {
                     await editRecord('task', candidate.id, async function reuseCurrentTask() {
                         const task = await readRecord('task', candidate.id);
                         if (!currentDiscovery()) return;
-                        if (!task || !sameNativeOrigin(task.origin, origin)) {
+                        if (!task || !sameNativeTask(task.origin, origin)) {
                             result.unassociated.push({threadId: thread.id, reason: 'task-association-changed', taskIds: [candidate.id]});
                             return;
                         }
@@ -769,9 +775,7 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
                 return;
             }
             const incomplete = candidates.filter(function missingTaskIdentity(task) {
-                return (!hasNativeText(task.origin.accountId) || !hasNativeText(task.origin.hostId))
-                    && (!hasNativeText(task.origin.accountId) || task.origin.accountId === identity.accountId)
-                    && (!hasNativeText(task.origin.hostId) || task.origin.hostId === identity.hostId);
+                return !hasNativeText(task.origin.hostId);
             });
             if (incomplete.length) {
                 result.unassociated.push({threadId: thread.id, reason: 'association-required', taskIds: incomplete.map(function taskIdentity(task) { return task.id; })});
@@ -860,12 +864,14 @@ export async function listNativeTaskAssociations({accountId, hostId, signal} = {
     for (const task of tasks) {
         const origin = task.origin;
         if (origin?.provider !== 'codex') continue;
-        if (typeof origin.accountId !== 'string' || !origin.accountId.trim()) continue;
         if (typeof origin.hostId !== 'string' || !origin.hostId.trim()) continue;
         if (typeof origin.threadId !== 'string' || !origin.threadId.trim()) continue;
         if (accountId !== undefined && origin.accountId !== accountId) continue;
         if (hostId !== undefined && origin.hostId !== hostId) continue;
-        associations.push({taskId: task.id, origin: nativeActivityOrigin(origin)});
+        associations.push({taskId: task.id, origin: {
+            provider: 'codex', accountId: origin.accountId ?? null,
+            hostId: origin.hostId, threadId: origin.threadId
+        }});
     }
     return associations;
 }
@@ -932,7 +938,7 @@ export async function applyNativeTaskObservation(id, observation, {isCurrent, si
         const record = readStoredRecord(await db.get(tables.task, fileName(id), true), 'task', id);
         checkCancellation(signal);
         if (record === null) return {applied: false, reason: 'task-missing', task: null};
-        if (!sameNativeOrigin(record.origin, activity.origin)) {
+        if (!sameNativeTask(record.origin, activity.origin)) {
             return {applied: false, reason: 'origin-mismatch', task: record};
         }
         const current = isCurrent();
@@ -945,7 +951,7 @@ export async function applyNativeTaskObservation(id, observation, {isCurrent, si
             throw dataError('PM_DATA_INPUT', 'The activity predicate must return a boolean synchronously.');
         }
         if (!current) return {applied: false, reason: 'observation-stale', task: record};
-        const previous = sameNativeOrigin(record.nativeActivity?.origin, activity.origin) ? record.nativeActivity : null;
+        const previous = sameNativeTask(record.nativeActivity?.origin, activity.origin) ? record.nativeActivity : null;
         if (previous && Date.parse(previous.observedAt) > Date.parse(activity.observedAt)) {
             return {applied: false, reason: 'older-observation', task: record};
         }

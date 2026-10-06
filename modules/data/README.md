@@ -158,17 +158,20 @@ archive state, remain unchanged.
 
 ### Native activity on explicitly associated tasks
 
-`listNativeTaskAssociations` returns `{taskId, origin}` records for exact
-`provider:'codex'`, `accountId` and `hostId` matches, including archived tasks.
-Omitted filters return all complete explicit associations in one scan, allowing
-the composing owner to change its connection selection without another scan.
+`listNativeTaskAssociations` returns `{taskId, origin}` records with
+`provider:'codex'` and complete host/thread identities, including archived tasks.
+Optional `accountId` and `hostId` filters match the saved fields exactly; the
+account filter describes the historical observing account. Omitted filters
+return all complete explicit associations in one scan, allowing the composing
+owner to change its connection selection without another scan.
 Each origin contains only `provider`, `accountId`, `hostId` and `threadId`.
-The bridge owns those identities: account ID comes from the connected native
-account's actual workspace routing, and host ID is the reported native hostname.
+The saved account remains unchanged and may be null. The bridge supplies new
+observations' actual account from native workspace routing and their reported
+native hostname.
 A hostname is an observed host reference, not a claim of global uniqueness.
 Missing identities are not guessed from a selected account, email, process ID,
 working folder or thread ID alone. Existing records require deliberate
-re-association through the bridge owner when their original identity is missing.
+association through the bridge owner when their host or thread identity is missing.
 
 Subscribe to committed data changes before this one association scan, then keep
 the caller's association index current from those changes. Each observation
@@ -216,9 +219,16 @@ bridge observer supplies its authoritative state. It is not proof that the
 connection is still live. Manual `status`, `attention`, observations, content,
 faces, source/result references and archive state remain unchanged.
 
+An observation matches its selected PM task by provider, exact host and native
+thread, independently of the account that first observed the task. It preserves
+the original task origin and retains the actual observing account in
+`nativeActivity.origin`. Historical `lastObserved` remains attached to that
+same native task across observing-account changes.
+
 The required synchronous boolean `isCurrent()` predicate belongs to the
 composing owner. It checks the current bridge observer/revision and connection
-lifetime inside the existing same-record edit boundary after reading the latest
+lifetime, including the actual current account, inside the existing same-record
+edit boundary after reading the latest
 task. The bridge suppresses stale seed results and retires old connections;
 the caller invalidates its queued work when either changes. `signal` cancels
 pending work and is checked immediately before a durable write. An OPFS write
@@ -228,7 +238,8 @@ protocol identifier is persisted by this operation.
 Results are `{applied, reason, task}` with `task:null` only for `task-missing`.
 Other no-write reasons are `origin-mismatch`, `observation-stale`,
 `older-observation` and `unchanged`. Older actual timestamps cannot replace a
-newer saved observation for the same exact origin. An identical replay does not
+newer saved observation for the same provider/host/thread. An identical replay
+also compares the actual observing account and does not
 write or emit. Successful writes return `applied:true`, `reason:'observed'` and
 the saved task after publishing the ordinary committed data event. A malformed
 observation or asynchronous/nonboolean predicate is `PM_DATA_INPUT`; storage
@@ -284,13 +295,15 @@ unchanged; matching basenames, case folding, separators or overlapping roots
 never merge projects. A genuinely unassigned thread without a working folder
 becomes a task with `projectId:null`.
 
-Task identity is exact provider, account, host and native thread ID. Repeating
-a discovery reuses matching PM records and preserves every existing field,
+Task identity is exact provider, host and native thread ID, independent of the
+observing account. Repeating a discovery reuses every matching PM record and
+returns each existing association with `created:false`; it creates no new row
+when any match exists. Discovery preserves every existing field,
 including a manually cleared project association, assignment, labels, status,
-observations, face and archive state. Multiple deliberately associated PM
-tasks remain separate. An existing incomplete origin that matches the known
-identity is reported as `association-required`; the bridge's deliberate
-association action supplies missing identity. Discovery does not guess it or
+observations, face, archive state and original observing account. Multiple
+associated PM tasks remain separate, with no selected winner or historical
+merge. A saved thread whose host is missing is reported as `association-required`;
+the bridge's deliberate association action supplies missing identity. Discovery does not guess it or
 create a duplicate around it. A saved-project discovery does not merge an
 older folder project or move its existing tasks.
 
