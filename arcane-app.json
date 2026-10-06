@@ -1,0 +1,30 @@
+{
+    "schemaVersion": 2,
+    "id": "arcane-pm",
+    "displayName": "Arcane PM",
+    "description": "Organize project work, find complete sources, and prepare the next handoff.",
+    "version": "0.1.0",
+    "publisher": {
+        "id": "the-wizard-nexus",
+        "name": "TWiN"
+    },
+    "package": {
+        "entry": "index.html",
+        "documents": ["index.html"],
+        "strategy": "static",
+        "include": ["index.html", "app.css", "assets", "modules"],
+        "exclude": [],
+        "shared": ["browser-runtime"]
+    },
+    "native": {
+        "type": "app",
+        "icon": null,
+        "order": 0,
+        "bundledApps": []
+    },
+    "requirements": {
+        "arcaneProtocol": "arcane/1",
+        "features": []
+    },
+    "targets": ["browser"]
+}

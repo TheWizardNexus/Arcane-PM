@@ -1,0 +1,14 @@
+{
+    "name": "arcane-pm-app",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Arcane PM project workspace application",
+    "type": "module",
+    "scripts": {
+        "dev": "arcane dev --http --port 4310",
+        "import-map": "arcane import-map"
+    },
+    "dependencies": {
+        "arcane-os": "latest"
+    }
+}

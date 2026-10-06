@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "arcane-pm",
+  "displayName": "Arcane PM",
+  "version": "0.1.0",
+  "entry": "index.html",
+  "documents": [
+    "index.html"
+  ],
+  "strategy": "static",
+  "include": [
+    "index.html",
+    "app.css",
+    "assets",
+    "modules"
+  ],
+  "exclude": [],
+  "shared": [
+    "browser-runtime"
+  ]
+}
