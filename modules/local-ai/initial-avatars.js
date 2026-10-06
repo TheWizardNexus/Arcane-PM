@@ -583,10 +583,17 @@ export function createInitialAvatarPreparation(
                     entry.task.id, {signal: job.signal}
                 );
                 assertCurrent(job);
-                if (imported.coverage?.complete !== true) {
-                    const error = new Error('The native task conversation could not be retained completely.');
+                if (imported.coverage?.textComplete !== true) {
+                    const error = new Error('The native task conversation text could not be retained completely.');
                     error.diagnostics = {failures: imported.failures, coverage: imported.coverage};
                     throw error;
+                }
+                if (imported.coverage.complete !== true) {
+                    // The description uses retained text; attachment references stay in diagnostics.
+                    console.info(
+                        'Some conversation attachments remain in their original conversation.',
+                        {taskId: entry.task.id, failures: imported.failures, coverage: imported.coverage}
+                    );
                 }
                 importedOrigins.set(entry.task.id, origin);
             }

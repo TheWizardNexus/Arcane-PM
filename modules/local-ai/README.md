@@ -242,10 +242,15 @@ Native-associated tasks await their conversation import before
 `readTaskSources(taskId, {signal})`; every retained source kind remains in scope.
 Ordinary cards and model setup render independently. Every retained
 conversation message keeps its complete original content and source role in the
-source owner's returned order. Incomplete or unavailable conversation reads
-surface a source error and retain full developer diagnostics instead of sending
-partial source text. An empty retained scope describes that scope only; native
-import coverage remains a separate result. A native task missing its account,
+source owner's returned order. Native import's `coverage.textComplete` describes
+complete retained conversation text independently of unavailable attachments.
+Portrait preparation can use that complete text while attachment notices retain
+their complete original references and coverage in developer diagnostics, outside
+model messages. This does not claim the text model read those attachments.
+Native read or partial-history failures and retained-text/source-read failures
+still surface a source error with full diagnostics. An empty retained scope
+describes that scope only; native import coverage remains a separate result.
+A native task missing its account,
 host or thread association exposes a reconnect action before preparation.
 App-owned system instructions ask for an original, concrete image-generation
 description of an illustrated adult worker or project guide. The guidance focuses
@@ -395,7 +400,7 @@ or exact prompt adherence.
 
 ## Published SDK and delivery boundaries
 
-Foundation owns installation, import maps and the shared preview. Initial
+Foundation owns installation, import maps and the selected native build. Initial
 implementation and browser evidence used `arcane-os@0.62.0`; the decision-model
 mapping below was inspected at `0.64.0`. The selected Ollama integration consumes
 the published `0.65.0` contract. The development declaration tracks `latest`
@@ -607,9 +612,15 @@ downloader, model-store implementation, exporter, provider adapter, native
 projection copy or competing event bus. UI uses the foundation's Arcane theme
 layers. Source uses plain JavaScript and named callbacks. Native timing runs,
 local tests/checks and validation builds are unselected. Source review and
-browser verification are reported separately.
+actual built-app acceptance are reported separately. Application, model,
+integration and visual acceptance use the actual built app with its Core and
+existing profile through supported app-scoped controls. Browser-preview trials,
+whole-desktop control and foreground input are outside this acceptance path.
 
-## Browser evidence for this increment
+## Historical browser evidence
+
+The observations below predate the built-app acceptance requirement. They remain
+historical evidence and do not establish acceptance of the packaged application.
 
 On October 6, 2026, the local-AI owner used the shared source preview and a
 disposable Moon gardener task. The actual browser displayed the no-model
