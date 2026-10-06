@@ -20,14 +20,17 @@ const view = mountConnectionsView(container, {
 `coreClient` is optional. When omitted, the bridge reads the existing SDK client
 through `getInstalledCoreClient()`; it does not install a transport or probe a
 local port. Native composition supplies `bridge/codex-service.mjs` to the SDK
-Core runtime. The current foundation selects browser source development, with
-no native host running.
+Core runtime. The default export is the synchronous `createCodexService(options)`
+factory. Its `command`, `args` and `cwd` options select the owned Codex process;
+defaults are `codex app-server --listen stdio://`. The service's start hook
+registers event ownership without launching Codex. Only explicit connection
+starts that process; disconnect closes its standard input and observes exit.
 
 | Method | Contract |
 | --- | --- |
 | `status()` | Synchronous last observed connection state; starts no process. |
-| `refreshStatus({signal})` | Reads `pm.codex.status` when a Core client exists. |
-| `connect({signal})` | Explicitly asks the composed host to start its owned Codex connection. |
+| `refreshStatus({signal})` | Reads `pm.codex.status` and replays actual pending requests with their matching file-change events. |
+| `connect({signal})` | Explicitly starts the owned connection and returns its current state. Completion/error arrives through `subscribe`; rendering remains independent. |
 | `disconnect({signal})` | Ends that bridge connection; never stops a separately owned Codex app or daemon. |
 | `subscribe(listener, {signal, emitCurrent:true})` | Observes connection state through the shared SDK event owner, with current state replay. Returns unsubscribe. |
 | `observeNotifications(listener, {signal})` | Complete native notifications, transient and outside durable chat history. |
@@ -43,7 +46,7 @@ no native host running.
 | `archiveThread({threadId, signal})` | Native archive, including Codex's documented attempt to archive descendants. It does not remove PM records or working files. |
 | `restoreThread({threadId, signal})` | Native unarchive. |
 | `cancelTurn({threadId, turnId, signal})` | Requests interruption of the exact turn; completion remains an observed native event. |
-| `respondToRequest({requestId, result, signal})` | Delivers an explicit response to an actual pending native request. Native approval/input schemas and authority remain with Codex. |
+| `respondToRequest({connectionId, requestId, result, signal})` | Sends an explicit response to an actual pending native request on the observed connection. Native approval/input schemas and authority remain with Codex. |
 | `getThreadUrl(threadId)` | `codex://threads/<thread-id>`; no native state change. |
 | `openThread({threadId})` | Requests native navigation using that deep link. Reports `requested`, never claims foreground/open confirmation. |
 | `dispose()` | Removes bridge subscriptions; does not close a shared SDK Core client. |
@@ -55,7 +58,7 @@ state or an actual error, never an empty successful replacement.
 
 ## Source and acknowledgment boundaries
 
-Conversation results use `original:{thread,turns,pages}` with separate
+Conversation results use `original:{thread,turns,pages,metadata}` with separate
 `coverage:{complete,scope:'accessible-history',...}` and `observedAt`.
 Original native items may contain protocol/developer material. Sources owns
 the selection of ordinary visible messages for saved human-readable history;
@@ -68,6 +71,19 @@ result contains `accepted:true`, `status:'accepted'`, `threadId`, `turnId`,
 the turn, not that work completed or that the user read it. Native notifications
 carry progress, approval/input requests and completion. A lost response after a
 write has an unknown outcome and is never automatically resent.
+
+Core cancellation or transport loss can arrive before a host acknowledgment;
+the browser preserves that uncertainty for an invoked mutation. A native
+approval/input reply has no separate response acknowledgment: `status:'sent'`
+and `acknowledgment:'stdio-write'` confirm only the local write. Pending ownership
+ends on Codex's `serverRequest/resolved` event, with execution observed separately.
+
+The Connections view mounts `mountCodexRequests` from `requests.js` before its
+initial status refresh, so replay reaches the active view. This section presents
+actual command/file approval and question requests, preserves entered answers
+across replay, and exposes full protocol only in explicitly opened developer
+inspection. It offers no automatic or session-wide approval. Unsupported or
+incomplete requests retain their native conversation link.
 
 The handoff owner must supply the exact complete prepared text or native typed
 input array. The bridge does not turn a domain handoff object into a prompt,
@@ -96,11 +112,14 @@ association, connection presentation and handoff acknowledgment semantics. No
 SDK or Arcane OS source is imported or edited. PM owns no alternate event bus,
 HTTP server, account store or durable conversation store.
 
-One native bridge owns at most one child connection. Initialization and account
-read occur once per connection; listing reads one page at a time because the next
-cursor depends on the previous page. Full conversation retrieval reads the
-selected thread's complete pages, without a content cap. Independent operations
-remain independent. Foreground status changes before waiting; native lifecycle
+One native bridge owns at most one child connection. Initialization occurs once
+per connection; account reads follow initialization and account-change events.
+Listing reads one page at a time because the next cursor depends on the previous
+page. Full conversation retrieval reads the
+selected thread's complete pages alongside its metadata, without a content cap.
+Discovery uses the native state database only and avoids a file-repair scan.
+Independent operations remain independent. Foreground status changes before
+waiting; native lifecycle
 and errors have an explicit owner. Runtime timing is unmeasured because native
 execution and local tests were not selected.
 

@@ -1,3 +1,5 @@
+import {mountCodexRequests} from './requests.js';
+
 /** Connection and association workflow; shared shell owns its layout and theme. */
 export function mountConnectionsView(container, {bridge, pmData, projectId, onNavigate, onStatus, signal} = {}) {
     const lifetime = new AbortController();
@@ -6,17 +8,26 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     let listing = false;
     const root = document.createElement('section');
     root.className = 'pm-connections';
+    const header = document.createElement('header');
+    header.className = 'pm-page-heading';
+    const headingContent = document.createElement('div');
     const heading = document.createElement('h1');
     heading.textContent = 'Connections';
     const description = document.createElement('p');
     description.textContent = 'Connect your Codex work and keep preparing locally between sessions.';
+    headingContent.append(heading, description);
+    header.append(headingContent);
+    const connection = document.createElement('section');
+    connection.className = 'pm-panel';
     const state = document.createElement('p');
     state.setAttribute('role', 'status');
     const actions = document.createElement('div');
     actions.className = 'pm-actions';
     const connectButton = button('Connect Codex', connect);
     const refreshButton = button('Refresh connection', refresh);
+    refreshButton.classList.add('arcane-button--secondary');
     const disconnectButton = button('Disconnect', disconnect);
+    disconnectButton.classList.add('arcane-button--secondary');
     actions.append(connectButton, refreshButton, disconnectButton);
     const account = document.createElement('p');
     const coverage = document.createElement('p');
@@ -26,15 +37,22 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     archived.type = 'checkbox';
     archiveLabel.append(archived, document.createTextNode(' Show archived Codex tasks'));
     const discoverButton = button('Find Codex tasks', discover);
+    const discovery = document.createElement('div');
+    discovery.className = 'pm-actions';
+    discovery.append(archiveLabel, discoverButton);
     const results = document.createElement('div');
     const operationStatus = document.createElement('p');
     operationStatus.setAttribute('role', 'status');
-    root.append(heading, description, state, actions, account, coverage, archiveLabel, discoverButton, operationStatus, results);
+    connection.append(state, actions, account, coverage, discovery, operationStatus);
+    const requestsContainer = document.createElement('div');
+    root.append(header, connection, requestsContainer, results);
     container.replaceChildren(root);
+    const requests = mountCodexRequests(requestsContainer, {bridge, signal: pageSignal, onStatus});
 
     function button(text, action) {
         const element = document.createElement('button');
         element.type = 'button';
+        element.className = 'arcane-button';
         element.textContent = text;
         element.addEventListener('click', async function runConnectionAction() {
             element.disabled = true;
@@ -63,8 +81,8 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     function renderState(value) {
         if (closed || pageSignal.aborted) return;
         state.textContent = value.message;
-        connectButton.disabled = value.state === 'connecting' || value.connected || !value.available;
-        disconnectButton.disabled = !value.connected;
+        connectButton.disabled = value.state === 'connecting' || value.connected || value.closing || !value.available;
+        disconnectButton.disabled = value.closing || (!value.connected && value.state !== 'connecting');
         discoverButton.disabled = listing || !value.capabilities?.listThreads;
         account.textContent = value.account?.account?.email
             ? `Codex account: ${value.account.account.email}`
@@ -113,6 +131,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
 
     function renderThread(thread, observedAt) {
         const article = document.createElement('article');
+        article.className = 'pm-panel';
         const title = document.createElement('h2');
         title.textContent = thread.name || thread.id;
         const folder = document.createElement('p');
@@ -169,6 +188,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
         closed = true;
         lifetime.abort();
         stop();
+        requests.dispose();
     }
     return {refresh, dispose};
 }

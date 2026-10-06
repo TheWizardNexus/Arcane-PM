@@ -1,4 +1,5 @@
 import {getInstalledCoreClient} from 'arcane-os/core/client';
+import {CoreError} from 'arcane-os/core/contracts';
 import {createArcaneEventSource} from 'arcane-os/event-manager';
 
 export {mountConnectionsView} from './view.js';
@@ -83,9 +84,28 @@ export function createCodexBridge({coreClient, openURL} = {}) {
             if (error.code === 'METHOD_NOT_ALLOWED' || error.code === 'ARCANE_TRANSPORT_UNAVAILABLE') {
                 console.error('Arcane PM Codex host capability unavailable', error);
                 publishState(unavailableState('This Arcane host does not provide the Codex connection. Local work remains available.'));
+                if (error.code === 'ARCANE_TRANSPORT_UNAVAILABLE') throwIfMutationOutcomeUnknown(operation, error);
                 return unavailableResult();
             }
+            throwIfMutationOutcomeUnknown(operation, error);
             throw error;
+        }
+    }
+
+    function throwIfMutationOutcomeUnknown(operation, error) {
+        const mutatesCodex = [
+            'resumeThread', 'createTask', 'continueTask', 'sendHandoff',
+            'archiveThread', 'restoreThread', 'cancelTurn', 'respondToRequest'
+        ].includes(operation);
+        // Core may settle cancellation or transport loss before the host reply.
+        // A real native response or PM-owned outcome already provides evidence.
+        const hostOutcome = typeof error.code === 'string' && error.code.startsWith('PM_CODEX_');
+        if (mutatesCodex && !error.response && !hostOutcome) {
+            throw new CoreError({
+                code: 'PM_CODEX_OUTCOME_UNKNOWN', outcome: 'unknown', operation,
+                message: 'The Codex result is unconfirmed. Inspect the destination before sending again.',
+                cause: error
+            });
         }
     }
 
