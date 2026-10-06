@@ -30,7 +30,7 @@ No original is deleted by index removal or task archival.
 | `importFiles(files, {projectId, taskId, signal, onProgress} = {})` | Retain explicitly selected browser Files. UTF-8 text is searchable; unsupported or undecodable formats retain the complete original and searchable filename metadata. |
 | `importFolder(path, {projectId, taskId, origin, signal, onProgress} = {})` | Read an explicitly selected absolute folder through the connected bridge. Retain full originals with stable source IDs and report enumeration, original-read, text and index coverage separately. |
 | `importTasks({projectId, taskId, signal, onProgress} = {})` | Refresh metadata/complete assignments from PM task records, including archived tasks. An explicit task ID refreshes its current mapping even after a project move. |
-| `importConversation(taskId, {signal, onProgress} = {})` | Ask the bridge for complete accessible history. Retain each user text part and assistant message separately, verbatim. Return visible-text coverage and explicit unavailable-attachment failures. Unsupported/partial history is reported; summaries never become complete originals. |
+| `importConversation(taskId, {signal, onProgress} = {})` | Ask the bridge for complete accessible history. Retain each user text part and assistant message separately, verbatim. Return separate `coverage.textComplete` and overall `coverage.complete`, plus explicit unavailable-attachment notices in `failures`. Unsupported/partial history is reported; summaries never become complete originals. |
 | `refresh(id, options)` | Refresh task or conversation through its owner. A folder source refreshes its selected root through the read-only bridge. `refresh(id, {file, signal})` retains an explicitly reselected working file under the same PM source ID. |
 | `list({projectId, taskId, kind, indexed, signal} = {})` | Return all corresponding metadata, including archived sources and retained sources removed from search. Filters select exact PM associations. |
 | `query(text, {projectId, kind, signal, onProgress} = {})` | Persist the exact query, search locally using the published SDK, return `{query, matches, failures, total}`. Matches contain `{source, body, score, matchedFields}`. Every body is complete. |
@@ -75,6 +75,22 @@ reasoning, bootstrap and provider envelopes never cross this retention boundary.
 Original revisions are retained; refreshing commits the current metadata only
 after the new original has been written. Disposal of prior retained revisions
 is a separate lifecycle operation outside this increment.
+
+Conversation import reports `coverage.textComplete: true` when the complete
+accessible history supplied by the bridge has been mapped to visible text and
+retained without retention, corpus-read or index failures. Native read failures
+and incomplete accessible history still reject the import. Overall
+`coverage.complete` additionally requires no unavailable attachments. An
+attachment-only notice therefore leaves `textComplete: true` and
+`complete: false`; it never claims that the attachment was read or retained.
+Each `coverage.unavailableAttachments` entry preserves its native turn/item IDs,
+part position and kind, with the unchanged supplied non-text user part in
+`original`, including any native path, URL or file reference. These returned
+references do not copy the attachment or enter the saved text transcript.
+The full `failures` array retains the same attachment notices and real failures.
+Text-only consumers may use `textComplete` while retaining the complete coverage
+and attachment references separately from their text inputs. They still inspect
+the subsequent `readTaskSources` result for actual retained-content failures.
 
 Task-scoped reads order kinds deterministically, then conversation origins and
 their actual native turn/item/part positions. Other retained records use import

@@ -874,8 +874,21 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                         if (item.type === 'agentMessage') texts.push({content: item.text, role: 'assistant', partIndex: null});
                         if (item.type === 'userMessage') {
                             for (const [partIndex, part] of item.content.entries()) {
-                                if (part.type === 'text') texts.push({content: part.text, role: 'user', partIndex});
-                                else unavailableAttachments.push({turnId: turn.id, itemId: item.id, partIndex, kind: part.type});
+                                if (part.type === 'text') {
+                                    texts.push(
+                                        {content: part.text, role: 'user', partIndex}
+                                    );
+                                } else {
+                                    unavailableAttachments.push(
+                                        {
+                                            turnId: turn.id,
+                                            itemId: item.id,
+                                            partIndex,
+                                            kind: part.type,
+                                            original: part
+                                        }
+                                    );
+                                }
                             }
                         }
                         for (const text of texts) {
@@ -911,6 +924,7 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                     }
                 }
                 const retained = await retainSources(inputs, options);
+                const textComplete = retained.failures.length === 0;
                 return {
                     ...retained,
                     failures: [
@@ -921,7 +935,12 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                             }
                         )
                     ],
-                    coverage: {complete: retained.failures.length === 0 && unavailableAttachments.length === 0, scope: 'visible-text', unavailableAttachments}
+                    coverage: {
+                        complete: textComplete && unavailableAttachments.length === 0,
+                        textComplete,
+                        scope: 'visible-text',
+                        unavailableAttachments
+                    }
                 };
             });
         }
