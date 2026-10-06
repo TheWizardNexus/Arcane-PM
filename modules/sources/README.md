@@ -32,14 +32,16 @@ No original is deleted by index removal or task archival.
 | `importTasks({projectId, taskId, signal, onProgress} = {})` | Refresh metadata/complete assignments from PM task records, including archived tasks. An explicit task ID refreshes its current mapping even after a project move. |
 | `importConversation(taskId, {signal, onProgress} = {})` | Ask the bridge for complete accessible history. Retain each user text part and assistant message separately, verbatim. Return visible-text coverage and explicit unavailable-attachment failures. Unsupported/partial history is reported; summaries never become complete originals. |
 | `refresh(id, options)` | Refresh task or conversation through its owner. A folder source refreshes its selected root through the read-only bridge. `refresh(id, {file, signal})` retains an explicitly reselected working file under the same PM source ID. |
-| `list({projectId, indexed, signal} = {})` | Return all corresponding metadata, including archived sources and retained sources removed from search. |
+| `list({projectId, taskId, kind, indexed, signal} = {})` | Return all corresponding metadata, including archived sources and retained sources removed from search. Filters select exact PM associations. |
 | `query(text, {projectId, kind, signal, onProgress} = {})` | Persist the exact query, search locally using the published SDK, return `{query, matches, failures, total}`. Matches contain `{source, body, score, matchedFields}`. Every body is complete. |
 | `read(id, {signal} = {})` | Return `{source, content, originalFile, availability, freshness, failures}`. Availability is `retained` or `unavailable`; freshness is `snapshot`, `current`, or `stale`. Text and original-file reads are independent, so a readable original remains recoverable if its search text is unavailable. No missing content is fabricated. |
+| `readTaskSources(taskId, {kind, signal} = {})` | Return `{sources, unavailableIds, failures, complete, coverage}` for this exact task, independently of search membership or global selection. Each source is a full `read` result. `coverage.scope` is `retained-task-sources`; completeness concerns these retained records only, including an empty scope, and never claims complete native history. |
+| `subscribe(handler, {signal} = {})` | Observe committed source batches through the shared SDK event owner. Returns unsubscribe. No replay or native reads occur. |
 | `select(id, selected = true)` / `getSelectedIds()` | Persist explicit source selection across projects independently of navigation, so originals from one project can be included in another project's handoff. |
 | `getSelection({signal} = {})` | Return `{sources, unavailableIds, complete}` with full `read` results in selection order. File values remain File objects; consumers store them as files, never JSON-serialize them. |
 | `getQuery(projectId)` | Return the complete saved query, default `''`. |
 | `removeFromIndex(id)` / `restoreToIndex(id)` | Change searchable membership only; retain originals, metadata, selection, native chats and system files. |
-| `dispose()` | Release the task-record subscription; active operations use their caller-owned cancellation signals. |
+| `dispose()` | Release the task-record subscription and source event handle; active operations use their caller-owned cancellation signals. |
 
 `mountSourcesView(container, {sources, projectId, sourceId, taskId, handoffId, onNavigate, onSelection,
 onStatus, signal})` returns `{dispose()}`. Routes are `task`, `sources`, and
@@ -73,6 +75,38 @@ reasoning, bootstrap and provider envelopes never cross this retention boundary.
 Original revisions are retained; refreshing commits the current metadata only
 after the new original has been written. Disposal of prior retained revisions
 is a separate lifecycle operation outside this increment.
+
+Task-scoped reads order kinds deterministically, then conversation origins and
+their actual native turn/item/part positions. Other retained records use import
+time and stable source ID. Conversation refresh records `turnIndex` and
+`itemIndex` without changing text. Earlier snapshots remain untouched until an
+explicit refresh; when their ordering coordinates are absent, reads retain them
+in stable import order and report `coverage.ordered: false`. Callers needing a
+current native transcript must await `importConversation(taskId)` and inspect
+its own coverage before asking for a content-derived result. `readTaskSources`
+does not discover threads, refresh history, assign project names, rewrite task
+assignments, or change `sourceRefs`. Unsupported binary files may be fully
+retained with `content: null`; callers must use the actual content availability.
+
+Each source-change batch is `{changes}`. A change contains `id`, `taskId`,
+`previousTaskId`, `projectId`, `previousProjectId`, `kind`, `operation`
+(`created` or `updated`), `contentChanged`, `associationChanged`, and
+`originalChanged`. Exact previous text comparison determines `contentChanged`;
+an unreadable prior representation gives `null`, explicitly unknown. An
+identical-text refresh reports `false`. `originalChanged` reports replacement
+of a retained File revision, not a comparison of file contents. Events contain
+metadata only and publish committed changes even when a later item is cancelled
+or indexing fails. Search exclusion and global selection are not source
+deletion or content change. No source-removal operation is added.
+
+One task read enumerates source metadata once and reads matching originals in
+groups of four. Only the metadata snapshot shares the existing mutation queue;
+retained original revisions are read outside it. It does not make native or
+model requests. One retention batch publishes one metadata event; text comparison
+adds one previous-text read per refreshed record. Folder refresh compares each
+staged text record at publication, keeping decoded folder bodies out of the
+pending metadata list. Storage and event mechanics remain SDK-owned; PM owns
+the task association, original-content mapping, and avatar input selection.
 
 One import batch performs one corpus replacement, regardless of batch record
 count. Independent file reads settle in groups of four; errors identify actual

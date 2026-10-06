@@ -1,4 +1,7 @@
 import DBOPFSDocumentLibrary from 'arcane-os/dbopfs-document-library';
+import {createArcaneEventSource} from 'arcane-os/event-manager';
+
+const SOURCES_CHANGED_EVENT = 'arcane-pm.sources.changed';
 
 const TABLES = {
     records: 'pm_sources',
@@ -66,6 +69,10 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
     const refreshedSources = new Set();
     const conversationRefreshes = new Map();
     const folderRefreshes = new Map();
+    const events = createArcaneEventSource(
+        {},
+        {source: 'arcane-pm.sources', eventTypes: [SOURCES_CHANGED_EVENT]}
+    );
 
     const unsubscribe = pmData?.subscribe(
         function observeTaskChange(change) {
@@ -110,7 +117,7 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         return next;
     }
 
-    async function list({projectId, indexed, signal} = {}) {
+    async function list({projectId, taskId, kind, indexed, signal} = {}) {
         assertActive(signal);
         const {db} = await storage();
         const keys = (await db.getAllKeys(TABLES.records)).sort();
@@ -135,6 +142,8 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                     }
                     const source = structuredClone(result.value);
                     if (projectId !== undefined && source.projectId !== projectId) return;
+                    if (taskId !== undefined && source.taskId !== taskId) return;
+                    if (kind !== undefined && source.kind !== kind) return;
                     if (indexed !== undefined && source.indexed !== indexed) return;
                     if (source.freshness === 'current' && !refreshedSources.has(source.id)) source.freshness = 'snapshot';
                     if (staleTasks.has(source.taskId)) source.freshness = 'stale';
@@ -205,6 +214,55 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         );
     }
 
+    async function describeChange(previous, source, content) {
+        let contentChanged = !previous;
+        if (previous) {
+            try {
+                const {db} = await storage();
+                const previousContent = previous.textKey ? await readText(db, previous.textKey) : null;
+                contentChanged = previousContent !== (typeof content === 'string' ? content : null);
+            } catch (error) {
+                // A prior unreadable representation cannot establish unchanged content.
+                console.error(
+                    'Previous source content could not be compared.',
+                    {id: source.id, error}
+                );
+                contentChanged = null;
+            }
+        }
+        return {
+            id: source.id,
+            taskId: source.taskId,
+            previousTaskId: previous?.taskId ?? null,
+            projectId: source.projectId,
+            previousProjectId: previous?.projectId ?? null,
+            kind: source.kind,
+            operation: previous ? 'updated' : 'created',
+            contentChanged,
+            associationChanged: !previous || previous.taskId !== source.taskId || previous.projectId !== source.projectId,
+            originalChanged: (previous?.originalKey ?? null) !== source.originalKey
+        };
+    }
+
+    function publishChanges(changes) {
+        if (changes.length && !events.disposed) {
+            events.dispatch(
+                SOURCES_CHANGED_EVENT,
+                {changes}
+            );
+        }
+    }
+
+    function subscribe(handler, options = {}) {
+        return events.on(
+            SOURCES_CHANGED_EVENT,
+            function sourceRecordsChanged(event) {
+                handler(event.detail);
+            },
+            options
+        );
+    }
+
     // Original revisions are independent files; committing metadata makes one current.
     async function prepareSource(input, previous, {signal} = {}) {
         assertActive(signal);
@@ -259,22 +317,29 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         const {db} = await storage();
         const sources = [];
         const failures = [];
+        const changes = [];
         if (records.length) corpusReady = false;
         reportProgress(options.onProgress, {phase: 'retaining', completed: 0, total: records.length});
-        for (const input of records) {
-            assertActive(options.signal);
-            try {
-                const previous = input.id ? await db.get(TABLES.records, `${input.id}.json`, true) : null;
-                const source = await prepareSource(input, previous, options);
+        try {
+            for (const input of records) {
                 assertActive(options.signal);
-                await db.set(TABLES.records, `${source.id}.json`, source);
-                refreshedSources.add(source.id);
-                sources.push(source);
-            } catch (error) {
-                if (options.signal?.aborted) throw error;
-                failures.push({id: input.id || null, title: input.title, error});
+                try {
+                    const previous = input.id ? await db.get(TABLES.records, `${input.id}.json`, true) : null;
+                    const source = await prepareSource(input, previous, options);
+                    const change = await describeChange(previous, source, input.content);
+                    assertActive(options.signal);
+                    await db.set(TABLES.records, `${source.id}.json`, source);
+                    changes.push(change);
+                    refreshedSources.add(source.id);
+                    sources.push(source);
+                } catch (error) {
+                    if (options.signal?.aborted) throw error;
+                    failures.push({id: input.id || null, title: input.title, error});
+                }
+                reportProgress(options.onProgress, {phase: 'retaining', completed: sources.length + failures.length, total: records.length});
             }
-            reportProgress(options.onProgress, {phase: 'retaining', completed: sources.length + failures.length, total: records.length});
+        } finally {
+            publishChanges(changes);
         }
         if (sources.length) {
             try {
@@ -539,30 +604,38 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                 }
                 if (enumeratedRoot) await mutate(async function publishFolderRefresh() {
                     const {db} = await storage();
-                    for (const preparedSource of prepared) {
-                        assertActive(options.signal);
-                        const source = preparedSource.source;
-                        try {
-                            const latest = await db.get(TABLES.records, `${source.id}.json`, true);
-                            if (latest && folderAssociation(latest.folder?.rootPath, latest.folder?.entryPath,
-                                latest.projectId, latest.taskId, latest.origin) !== preparedSource.key) {
-                                failed(source.folder.entryPath, 'association', sourceError('This source association changed during the refresh; its current original was preserved.'), {sourceId: source.id});
-                                continue;
-                            }
-                            const currentSource = latest ? {
-                                ...source, indexed: latest.indexed, archivedAt: latest.archivedAt,
-                                importedAt: latest.importedAt, searchTerms: latest.searchTerms
-                            } : source;
+                    const changes = [];
+                    try {
+                        for (const preparedSource of prepared) {
                             assertActive(options.signal);
-                            corpusReady = false;
-                            await db.set(TABLES.records, `${source.id}.json`, currentSource);
-                            sources.push(currentSource);
-                            refreshedSources.add(source.id);
-                            coverage.retained++;
-                        } catch (error) {
-                            if (options.signal?.aborted) throw error;
-                            failed(source.folder.entryPath, 'retention', error, {sourceId: source.id});
+                            const source = preparedSource.source;
+                            try {
+                                const latest = await db.get(TABLES.records, `${source.id}.json`, true);
+                                if (latest && folderAssociation(latest.folder?.rootPath, latest.folder?.entryPath,
+                                    latest.projectId, latest.taskId, latest.origin) !== preparedSource.key) {
+                                    failed(source.folder.entryPath, 'association', sourceError('This source association changed during the refresh; its current original was preserved.'), {sourceId: source.id});
+                                    continue;
+                                }
+                                const currentSource = latest ? {
+                                    ...source, indexed: latest.indexed, archivedAt: latest.archivedAt,
+                                    importedAt: latest.importedAt, searchTerms: latest.searchTerms
+                                } : source;
+                                const content = latest && source.textKey ? await readText(db, source.textKey) : null;
+                                const change = await describeChange(latest, currentSource, content);
+                                assertActive(options.signal);
+                                corpusReady = false;
+                                await db.set(TABLES.records, `${source.id}.json`, currentSource);
+                                changes.push(change);
+                                sources.push(currentSource);
+                                refreshedSources.add(source.id);
+                                coverage.retained++;
+                            } catch (error) {
+                                if (options.signal?.aborted) throw error;
+                                failed(source.folder.entryPath, 'retention', error, {sourceId: source.id});
+                            }
                         }
+                    } finally {
+                        publishChanges(changes);
                     }
                     assertActive(options.signal);
                     progress('indexing', path);
@@ -680,8 +753,8 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                 }
                 const inputs = [];
                 const unavailableAttachments = [];
-                for (const turn of result.original.turns) {
-                    for (const item of turn.items) {
+                for (const [turnIndex, turn] of result.original.turns.entries()) {
+                    for (const [itemIndex, item] of turn.items.entries()) {
                         const texts = [];
                         if (item.type === 'agentMessage') texts.push({content: item.text, role: 'assistant', partIndex: null});
                         if (item.type === 'userMessage') {
@@ -711,6 +784,8 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                                         role: text.role,
                                         nativeItemId: item.id,
                                         nativeTurnId: turn.id,
+                                        turnIndex,
+                                        itemIndex,
                                         partIndex: text.partIndex,
                                         turnStartedAt: turn.startedAt ?? null,
                                         turnCompletedAt: turn.completedAt ?? null
@@ -742,12 +817,13 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         const {db} = await storage();
         const saved = await db.get(TABLES.records, `${id}.json`, true);
         if (!saved) return {source: {id}, content: null, originalFile: null, availability: 'unavailable', freshness: 'stale'};
+        return readSnapshot(saved, {signal});
+    }
+
+    async function readSnapshot(saved, {signal} = {}) {
+        assertActive(signal);
+        const {db} = await storage();
         const source = structuredClone(saved);
-        const freshness = staleTasks.has(source.taskId)
-            ? 'stale'
-            : source.freshness === 'current' && !refreshedSources.has(id)
-                ? 'snapshot'
-                : source.freshness;
         const results = await Promise.allSettled(
             [
                 source.textKey ? readText(db, source.textKey) : null,
@@ -763,13 +839,108 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         for (const [position, result] of results.entries()) {
             if (result.status === 'rejected') {
                 failures.push({representation: position === 0 ? 'text' : 'original-file', error: result.reason});
-                console.error('Retained source representation could not be read.', {id, error: result.reason});
+                console.error('Retained source representation could not be read.', {id: source.id, error: result.reason});
             }
         }
         const available = source.originalKey ? originalFile !== null : content !== null;
         const availability = available ? 'retained' : 'unavailable';
         assertActive(signal);
+        const changedTaskRevision = source.kind === 'task' && taskRevisions.has(source.taskId)
+            && taskRevisions.get(source.taskId) !== source.externalKey;
+        const freshness = staleTasks.has(source.taskId) || changedTaskRevision
+            ? 'stale'
+            : source.freshness === 'current' && !refreshedSources.has(source.id)
+                ? 'snapshot'
+                : source.freshness;
         return {source, content, originalFile, availability, freshness, failures};
+    }
+
+    async function readTaskSources(taskId, options = {}) {
+        if (typeof taskId !== 'string' || !taskId.trim()) {
+            throw sourceError('Select a task before reading its retained sources.', 'PM_SOURCE_INPUT');
+        }
+        assertActive(options.signal);
+        let records;
+        const failures = [];
+        try {
+            records = await mutate(
+                function snapshotTaskSources() {
+                    return list(
+                        {taskId, kind: options.kind, signal: options.signal}
+                    );
+                }
+            );
+        } catch (error) {
+            if (options.signal?.aborted || !Array.isArray(error.sources)) throw error;
+            records = error.sources;
+            failures.push(...error.failures);
+        }
+        records.sort(compareTaskSources);
+        const sources = [];
+        const unavailableIds = [];
+        // Originals are retained revisions; only the metadata snapshot needs the mutation queue.
+        for (let start = 0; start < records.length; start += 4) {
+            assertActive(options.signal);
+            const batch = records.slice(start, start + 4);
+            const results = await Promise.allSettled(
+                batch.map(
+                    function readTaskOriginal(source) {
+                        return readSnapshot(source, options);
+                    }
+                )
+            );
+            assertActive(options.signal);
+            for (const [position, result] of results.entries()) {
+                const source = batch[position];
+                if (result.status === 'rejected') {
+                    unavailableIds.push(source.id);
+                    failures.push(
+                        {id: source.id, phase: 'read', error: result.reason}
+                    );
+                    continue;
+                }
+                sources.push(result.value);
+                if (result.value.availability === 'unavailable') unavailableIds.push(source.id);
+                for (const failure of result.value.failures || []) {
+                    failures.push(
+                        {id: source.id, ...failure}
+                    );
+                }
+            }
+        }
+        assertActive(options.signal);
+        const complete = !failures.length && !unavailableIds.length;
+        const ordered = records.every(
+            function hasConversationOrder(source) {
+                return source.kind !== 'conversation'
+                    || (Number.isInteger(source.message?.turnIndex) && Number.isInteger(source.message?.itemIndex));
+            }
+        );
+        return {
+            sources, unavailableIds, failures, complete,
+            coverage: {scope: 'retained-task-sources', complete, ordered}
+        };
+    }
+
+    function compareTaskSources(left, right) {
+        const kindOrder = left.kind.localeCompare(right.kind);
+        if (kindOrder) return kindOrder;
+        if (left.kind === 'conversation' && right.kind === 'conversation') {
+            const leftOrigin = JSON.stringify([left.origin?.provider, left.accountId, left.origin?.hostId, left.origin?.threadId]);
+            const rightOrigin = JSON.stringify([right.origin?.provider, right.accountId, right.origin?.hostId, right.origin?.threadId]);
+            const originOrder = leftOrigin.localeCompare(rightOrigin);
+            if (originOrder) return originOrder;
+            const leftOrdered = Number.isInteger(left.message?.turnIndex) && Number.isInteger(left.message?.itemIndex);
+            const rightOrdered = Number.isInteger(right.message?.turnIndex) && Number.isInteger(right.message?.itemIndex);
+            if (leftOrdered !== rightOrdered) return leftOrdered ? -1 : 1;
+            if (leftOrdered) {
+                return left.message.turnIndex - right.message.turnIndex
+                    || left.message.itemIndex - right.message.itemIndex
+                    || (left.message.partIndex ?? 0) - (right.message.partIndex ?? 0)
+                    || left.id.localeCompare(right.id);
+            }
+        }
+        return left.importedAt.localeCompare(right.importedAt) || left.id.localeCompare(right.id);
     }
 
     async function refresh(id, options = {}) {
@@ -884,6 +1055,8 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         importConversation,
         list,
         read,
+        readTaskSources,
+        subscribe,
         refresh,
         query,
         getQuery,
@@ -892,6 +1065,9 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         getSelection,
         removeFromIndex(id) { return setIndexed(id, false); },
         restoreToIndex(id) { return setIndexed(id, true); },
-        dispose() { unsubscribe?.(); }
+        dispose() {
+            unsubscribe?.();
+            events.dispose();
+        }
     };
 }
