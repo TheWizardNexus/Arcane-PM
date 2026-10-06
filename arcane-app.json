@@ -21,12 +21,19 @@
         "icon": null,
         "order": 0,
         "bundledApps": [],
+        "localAI": {
+            "runtimes": [
+                {"id": "ollama"},
+                {
+                    "id": "stable-diffusion.cpp",
+                    "version": "master-929-3f8527a",
+                    "backend": "auto",
+                    "models": ["sd14"]
+                }
+            ]
+        },
         "services": [
-            {"module": "bridge/codex-service.mjs", "options": {}},
-            {
-                "module": "modules/local-ai/core-service.mjs",
-                "options": {"runtimes": ["ollama"]}
-            }
+            {"module": "bridge/codex-service.mjs", "options": {}}
         ]
     },
     "requirements": {
