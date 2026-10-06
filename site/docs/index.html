@@ -6,10 +6,10 @@
 <title>Overview · Arcane PM Docs</title>
 <meta name="description" content="Organize projects, prepare useful work, and make the next handoff easy to follow.">
 <script src="../shared/theme.js"></script>
-<link rel="stylesheet" href="../shared/site.css">
-<link rel="stylesheet" href="docs.css">
-<script src="../shared/shell.js" defer></script>
-<script src="docs.js" defer></script>
+<link rel="stylesheet" href="../shared/site.css?v=3">
+<link rel="stylesheet" href="docs.css?v=4">
+<script src="../shared/shell.js?v=3" defer></script>
+<script src="docs.js?v=3" defer></script>
 </head>
 <body data-site-root="../" data-section="docs">
 <header data-site-header><a href="../index.html">Arcane PM</a> <a href="index.html">Docs</a> <a href="search.html">Search</a></header>
@@ -17,33 +17,46 @@
 <div class="docs-layout">
 <aside class="docs-sidebar" aria-label="Documentation navigation">
 <details class="docs-menu" open>
-<summary>Browse docs <span>Overview</span></summary>
+<summary><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#menu"></use></svg>Browse docs <span>Overview</span></summary>
 <nav class="docs-nav" aria-label="Documentation topics">
 <a class="docs-search-link" href="search.html">Search docs</a>
-<section><h2>Start here</h2><ul><li><a href="index.html" aria-current="page">Overview</a></li><li><a href="concepts.html">Core concepts</a></li></ul></section>
-<section><h2>Build your workspace</h2><ul><li><a href="project-bridge.html">Project bridge</a></li><li><a href="tasks.html">Task records</a></li><li><a href="handoffs.html">Context handoffs</a></li><li><a href="local-ai.html">Local AI</a></li></ul></section>
-<section><h2>Reference</h2><ul><li><a href="ui-components.html">UI components</a></li><li><a href="storage.html">Storage &amp; cleanup</a></li><li><a href="handoff-example.html">Handoff example</a></li></ul></section>
+<section><h2>Start here</h2><ul><li><a href="index.html" aria-current="page"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#home"></use></svg>Overview</a></li><li><a href="concepts.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#book"></use></svg>Core concepts</a></li></ul></section>
+<section><h2>Build your workspace</h2><ul><li><a href="project-bridge.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#folder"></use></svg>Project bridge</a></li><li><a href="tasks.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#tasks"></use></svg>Task records</a></li><li><a href="handoffs.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#handoff"></use></svg>Context handoffs</a></li><li><a href="local-ai.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#spark"></use></svg>Local AI</a></li></ul></section>
+<section><h2>Reference</h2><ul><li><a href="ui-components.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#grid"></use></svg>UI components</a></li><li><a href="storage.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#storage"></use></svg>Storage &amp; cleanup</a></li><li><a href="handoff-example.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#document"></use></svg>Handoff example</a></li></ul></section>
 </nav>
 </details>
 <div class="docs-guide"><img src="../assets/project-guide.png" alt="" width="56" height="56"><p>Start with a familiar task.<a href="handoff-example.html">Follow the example →</a></p></div>
 </aside>
-<article class="doc-article" data-doc-article>
+<article class="doc-article docs-overview" id="overview" data-doc-article>
 <div class="breadcrumbs"><a href="index.html">Docs</a> / Overview</div>
-<span class="doc-label">Architecture preview</span>
+<span class="doc-label"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#architecture"></use></svg>Architecture preview</span>
 <h1>Build around the way you work.</h1>
 <p class="lede">Organize projects, prepare useful work, and make the next handoff easy to follow.</p>
 <p>These guides describe Arcane PM’s proposed application. Project connections, storage, and model integrations remain under development.</p>
+<nav class="intro-links" aria-label="Starting points"><a href="concepts.html">Understand the model <span aria-hidden="true">→</span></a><a href="project-bridge.html">Plan your integration <span aria-hidden="true">→</span></a></nav>
 <h2 id="responsibilities">A few clear responsibilities</h2>
+<div class="architecture">
 <div class="responsibilities" aria-label="Conceptual architecture: your interface, Arcane PM, and the project bridge">
-<div class="responsibility"><h3>Your interface</h3><p>The experience your team uses.</p></div><span class="flow-arrow" aria-hidden="true">→</span>
-<div class="responsibility"><h3>Arcane PM</h3><p>Assignments, context, and coordination.</p></div><span class="flow-arrow" aria-hidden="true">→</span>
-<div class="responsibility"><h3>Project bridge</h3><p>A connection to existing Codex projects.</p></div></div>
+<div class="responsibility"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#person"></use></svg><div><h3>Your interface</h3><p>The experience your team uses.</p></div></div><span class="flow-arrow" aria-hidden="true">→</span>
+<div class="responsibility"><span class="brand-mark" aria-hidden="true"></span><div><h3>Arcane PM</h3><p>Assignments, context, and coordination.</p></div></div><span class="flow-arrow" aria-hidden="true">→</span>
+<div class="responsibility"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#folder"></use></svg><div><h3>Project bridge</h3><p>A connection to existing Codex projects.</p></div></div></div>
+<div class="architecture-branches"><a href="storage.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#folder"></use></svg><span><strong>Codex project folders</strong><small>Working documents and source files.</small></span></a><a href="local-ai.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#spark"></use></svg><span><strong>Local AI</strong><small>Local models and capabilities.</small></span></a></div>
 <p class="figure-caption">Conceptual ownership. Exact interfaces follow implementation.</p>
-<h2 id="explore">Choose your next page</h2>
-<ul class="topic-links"><li><a href="storage.html">File ownership and deliberate cleanup</a></li><li><a href="local-ai.html">Local AI and model readiness</a></li><li><a href="handoffs.html">Context that travels with the work</a></li></ul>
+</div>
+<details class="overview-details" open><summary>File ownership and repository layout</summary>
+<div class="overview-reference">
+<section id="ownership"><h2>Keep files with their owner</h2><dl><div><dt><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#storage"></use></svg>DBOPFS</dt><dd>App records and model assets</dd></div><div><dt><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#folder"></use></svg>Project folders</dt><dd>Working documents and source files</dd></div></dl><a href="storage.html">Read about storage →</a></section>
+<section><h2>Repository layout</h2><pre>project/
+├─ site/  Public website and docs
+├─ docs/  Project documentation
+└─ …      Application source</pre></section>
+</div>
+<aside class="familiar-task"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#spark"></use></svg><div><h2>Start with a familiar task.</h2><p>Give each task an identity, preserve its original sources, and make the next handoff easy to follow.</p></div></aside>
+</details>
+<nav id="explore" aria-label="Choose your next page"><ul class="topic-links"><li><a href="storage.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#document"></use></svg>File ownership and deliberate cleanup</a></li><li><a href="local-ai.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#spark"></use></svg>Local AI and model readiness</a></li><li><a href="handoffs.html"><svg class="doc-icon" aria-hidden="true"><use href="icons.svg#handoff"></use></svg>Context that travels with the work</a></li></ul></nav>
 <nav class="doc-pagination" aria-label="Article navigation"><a class="guide-next" href="concepts.html"><img src="../assets/project-guide.png" alt="" width="56" height="56"><span><small>Next page</small>Core concepts →</span></a></nav>
 </article>
-<nav class="page-contents" aria-label="On this page"><p>On this page</p><ul><li><a href="#responsibilities">A few clear responsibilities</a></li><li><a href="#explore">Choose your next page</a></li></ul></nav>
+<nav class="page-contents" aria-label="On this page"><p>On this page</p><ul><li><a href="#overview">Overview</a></li><li><a href="#responsibilities">Responsibilities</a></li><li><a href="#ownership">File ownership</a></li><li><a href="#explore">Next steps</a></li></ul></nav>
 </div>
 </main>
 <footer data-site-footer><p>Arcane PM by TWiN · Application under development</p></footer>

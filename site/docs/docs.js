@@ -1,11 +1,33 @@
 (function initializeDocumentation() {
     const menu = document.querySelector('.docs-menu');
+    const overviewDetails = document.querySelector('.overview-details');
     const narrowScreen = window.matchMedia('(max-width: 980px)');
     function updateDocsMenu() {
         if (menu) menu.open = !narrowScreen.matches;
+        if (overviewDetails) overviewDetails.open = !narrowScreen.matches;
     }
     updateDocsMenu();
     narrowScreen.addEventListener('change', updateDocsMenu);
+
+    const main = document.querySelector('main');
+    const contents = Array.from(document.querySelectorAll('.page-contents a')).map(function readContentsLink(link) {
+        return { link, section: document.getElementById(link.hash.replace(/^#/, '')) };
+    });
+    let currentSection;
+    function updateCurrentSection() {
+        const readingPosition = main.getBoundingClientRect().top + main.clientHeight * .25;
+        let current = contents[0];
+        contents.forEach(function findReadingSection(item) {
+            if (item.section && item.section.getBoundingClientRect().top <= readingPosition) current = item;
+        });
+        if (current === currentSection) return;
+        if (currentSection) currentSection.link.removeAttribute('aria-current');
+        if (current) current.link.setAttribute('aria-current', 'location');
+        currentSection = current;
+    }
+    updateCurrentSection();
+    main.addEventListener('scroll', updateCurrentSection, { passive: true });
+    window.addEventListener('resize', updateCurrentSection);
 
     const searchForm = document.querySelector('[data-doc-search]');
     if (!searchForm) return;

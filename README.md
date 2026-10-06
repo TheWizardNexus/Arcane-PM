@@ -57,6 +57,8 @@ The planned implementation uses plain HTML, CSS, and JavaScript. Development con
 
 The public site uses focused pages rather than a long scrolling landing page, with matching light, dark, and mobile layouts.
 
+[Project design instructions](AGENTS.md) map the approved references to each surface and describe the required comparison before visual delivery.
+
 - [Marketing home — light](docs/images/arcane-pm-home-light.png) · [dark](docs/images/arcane-pm-home-dark.png) · [mobile](docs/images/arcane-pm-home-mobile.png)
 - [Developer docs — light](docs/images/arcane-pm-docs-light.png) · [dark](docs/images/arcane-pm-docs-dark.png) · [mobile](docs/images/arcane-pm-docs-mobile.png)
 - [Arcane PM brand — light and dark](docs/images/arcane-pm-brand.png)
