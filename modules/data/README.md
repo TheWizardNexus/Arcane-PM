@@ -384,14 +384,42 @@ Cancellation uses `AbortError`; a write already accepted by OPFS completes.
 
 Committed changes publish canonical SDK event `arcane-pm.data.changed` from
 source `arcane-pm.data`, with `{recordType, action, id, record, changedFields}`. `record` is
-`null` after removal. Actions are `created`, `updated`, `archived`, `restored`,
-and `removed`. `subscribe` forwards that detail to its handler; subscriber
+`null` after removal. Local actions are `created`, `updated`, `archived`,
+`restored`, and `removed`. `subscribe` forwards that detail to its handler; subscriber
 failures follow the SDK's observational error behavior. There is no second bus,
-polling loop or durable event/protocol log. Notifications are within the current
-realm; explicit list/read calls refresh saved state across page reloads.
+polling loop or durable event/protocol log.
 Subscriptions have no replay: subscribe before loading initial records and
 refresh on subsequent change notifications. Mutations resolve only after the
 SDK write/delete succeeds and its committed change has been published.
+
+Opening storage subscribes to the published SDK's `DBOPFS.subscribeChanges`
+before the first PM read. Same-origin, same-storage-partition documents using
+the same application scope receive committed changes through the SDK. Data
+selects only its two tables and terminal `.json` record filenames. It reads the
+affected complete record and publishes `refreshed`, or `removed` when the current
+record is absent. A remote write cannot establish which PM fields changed, or
+whether it created, archived or restored a record; `changedFields` is therefore
+`null`. Consumers reconcile the returned record, including its archive state,
+face and associations, without treating `refreshed` as an authored content edit.
+Local PM writes retain their existing precise events and emit no storage echo.
+
+At most four affected-record reads run concurrently. A newer notification for
+the same record supersedes an in-flight refresh, and a local committed change
+prevents an older refresh from replacing its event. A table deletion refreshes
+the IDs already encountered by this document's reads and writes; it does not
+enumerate the catalog. No record-body shadow cache or durable notification log
+is retained. Refresh read failures reach developer diagnostics and preserve the
+caller's existing displayed record rather than presenting a failed read as a
+removal. Explicit list/read operations retain their ordinary failure contract.
+
+The SDK notifications are live only. They do not replay changes missed while a
+document is suspended or closed; application view owners refresh their saved
+state when resuming a suspended page. SDK cache invalidation alone does not
+refresh a consumer's retained view. Non-persisted `pagehide` releases Data's
+storage subscription and pending notifications. Separate WebView storage
+partitions and direct OPFS writes outside DBOPFS are outside this transport.
+Without `BroadcastChannel`, SDK local storage and local notifications remain
+available, while cross-document notifications are unavailable.
 
 `changedFields` names the explicitly authored fields in an accepted update,
 including those returned by a synchronous task updater. Project `name` and

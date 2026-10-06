@@ -4,6 +4,9 @@ export const DATA_CHANGED_EVENT = 'arcane-pm.data.changed';
 
 const tables = {project: 'pm_projects', task: 'pm_tasks'};
 const pendingEdits = new Map();
+const knownRecords = {project: new Set(), task: new Set()};
+const pendingRefreshes = new Map();
+let activeRefreshes = 0;
 let storagePromise;
 const events = createArcaneEventSource(tables, {
     source: 'arcane-pm.data',
@@ -40,7 +43,80 @@ async function openStorage() {
     if (db.applicationId !== 'arcane-pm') {
         throw dataError('PM_DATA_STORAGE_UNAVAILABLE', 'The open storage connection belongs to a different application.');
     }
+    const lifetime = new AbortController();
+    db.subscribeChanges(storageRecordChanged, {signal: lifetime.signal});
+    globalThis.addEventListener('pagehide', function closeRecordNotifications(event) {
+        pendingRefreshes.clear();
+        if (event.persisted) return;
+        lifetime.abort();
+        knownRecords.project.clear();
+        knownRecords.task.clear();
+    }, {signal: lifetime.signal});
     return db;
+}
+
+function storageRecordChanged(occurrence) {
+    const change = occurrence.detail;
+    const recordType = Object.keys(tables).find(function matchingPMTable(type) {
+        return tables[type] === change.tableName;
+    });
+    if (!recordType) return;
+    if (change.action === 'table-delete') {
+        for (const id of knownRecords[recordType]) queueRecordRefresh(recordType, id);
+        return;
+    }
+    if (!change.fileName?.endsWith('.json')) return;
+    const id = decodeURIComponent(change.fileName.replace(/\.json$/, ''));
+    if (change.remote) queueRecordRefresh(recordType, id);
+    // Local PM writers publish the precise domain event after their SDK write.
+    else pendingRefreshes.delete(`${recordType}:${id}`);
+}
+
+function queueRecordRefresh(recordType, id) {
+    knownRecords[recordType].add(id);
+    const key = `${recordType}:${id}`;
+    const pending = pendingRefreshes.get(key);
+    if (pending) pending.revision++;
+    else pendingRefreshes.set(key, {key, recordType, id, revision: 0, reading: false});
+    refreshChangedRecords();
+}
+
+function refreshChangedRecords() {
+    for (const pending of pendingRefreshes.values()) {
+        if (activeRefreshes >= 4) return;
+        if (pending.reading) continue;
+        pending.reading = true;
+        activeRefreshes++;
+        refreshChangedRecord(pending).finally(function releaseRecordRefresh() {
+            activeRefreshes--;
+            refreshChangedRecords();
+        }).catch(function reportRecordRefreshFailure(error) {
+            console.error('Arcane PM could not refresh a changed saved record.', error);
+        });
+    }
+}
+
+async function refreshChangedRecord(pending) {
+    while (pendingRefreshes.get(pending.key) === pending) {
+        const revision = pending.revision;
+        let record;
+        try {
+            record = await readRecord(pending.recordType, pending.id);
+        } catch (error) {
+            if (pendingRefreshes.get(pending.key) === pending) {
+                if (pending.revision !== revision) {
+                    console.error('Arcane PM could not read an earlier changed saved record.', error);
+                    continue;
+                }
+                pendingRefreshes.delete(pending.key);
+            }
+            throw error;
+        }
+        if (pendingRefreshes.get(pending.key) !== pending) return;
+        if (pending.revision !== revision) continue;
+        pendingRefreshes.delete(pending.key);
+        publishChange(pending.recordType, record === null ? 'removed' : 'refreshed', pending.id, record);
+    }
 }
 
 function requireRecord(value, label) {
@@ -220,10 +296,14 @@ function readStoredRecord(value, recordType, id) {
 async function readRecord(recordType, id) {
     const key = fileName(id);
     const db = await getStorage();
+    knownRecords[recordType].add(id);
     return readStoredRecord(await db.get(tables[recordType], key, true), recordType, id);
 }
 
 function publishChange(recordType, action, id, record, changedFields = null) {
+    pendingRefreshes.delete(`${recordType}:${id}`);
+    if (record === null) knownRecords[recordType].delete(id);
+    else knownRecords[recordType].add(id);
     events.dispatch(DATA_CHANGED_EVENT, {
         recordType, action, id, record: record === null ? null : structuredClone(record),
         changedFields: changedFields === null ? null : [...changedFields]
@@ -298,6 +378,7 @@ async function listRecords(recordType, options) {
             const key = keys[position++];
             try {
                 const id = decodeURIComponent(key.replace(/\.json$/, ''));
+                knownRecords[recordType].add(id);
                 const record = readStoredRecord(await db.get(tables[recordType], key, true), recordType, id);
                 if (record === null) continue;
                 if (options.archived !== undefined && Boolean(record.archivedAt) !== options.archived) continue;
