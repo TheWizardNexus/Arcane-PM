@@ -6,6 +6,9 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     const pageSignal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
     let closed = false;
     let listing = false;
+    let finding = false;
+    let discoveryRevision = 0;
+    let operationOwner = null;
     const root = document.createElement('section');
     root.className = 'pm-connections';
     const header = document.createElement('header');
@@ -32,6 +35,15 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     const account = document.createElement('p');
     const coverage = document.createElement('p');
     coverage.textContent = 'Working folders are observed from accessible Codex tasks. Saved projects without accessible tasks may be absent.';
+    const taskLabel = document.createElement('label');
+    const taskId = document.createElement('input');
+    taskId.type = 'text';
+    taskId.className = 'arcane-input';
+    taskLabel.append(document.createTextNode('Codex task ID'), taskId);
+    const findButton = button('Find this task', findTask);
+    const lookup = document.createElement('div');
+    lookup.className = 'pm-actions';
+    lookup.append(taskLabel, findButton);
     const archiveLabel = document.createElement('label');
     const archived = document.createElement('input');
     archived.type = 'checkbox';
@@ -43,7 +55,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     const results = document.createElement('div');
     const operationStatus = document.createElement('p');
     operationStatus.setAttribute('role', 'status');
-    connection.append(state, actions, account, coverage, discovery, operationStatus);
+    connection.append(state, actions, account, lookup, coverage, discovery, operationStatus);
     const requestsContainer = document.createElement('div');
     root.append(header, connection, requestsContainer, results);
     container.replaceChildren(root);
@@ -66,8 +78,9 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
         return element;
     }
 
-    function showOperation(message) {
+    function showOperation(message, owner = null) {
         if (closed || pageSignal.aborted) return;
+        operationOwner = owner;
         operationStatus.textContent = message;
         onStatus?.(message);
     }
@@ -84,9 +97,13 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
         connectButton.disabled = value.state === 'connecting' || value.connected || value.closing || !value.available;
         disconnectButton.disabled = value.closing || (!value.connected && value.state !== 'connecting');
         discoverButton.disabled = listing || !value.capabilities?.listThreads;
+        findButton.disabled = finding || !value.capabilities?.readThread;
         account.textContent = value.account?.account?.email
             ? `Codex account: ${value.account.account.email}`
             : value.connected ? 'Codex owns the active account connection.' : 'Local PM records remain independent of the Codex account.';
+        if (operationOwner === 'connect' && value.state !== 'connecting') {
+            showOperation(value.connected ? 'Codex connection is ready.' : value.message);
+        }
     }
 
     async function refresh() {
@@ -96,9 +113,9 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     }
 
     async function connect() {
-        showOperation('Connecting to Codex…');
-        const result = await bridge.connect({signal: pageSignal});
-        showOperation(result.connected ? 'Codex connection is ready.' : result.message);
+        showOperation('Connecting to Codex…', 'connect');
+        await bridge.connect({signal: pageSignal});
+        if (operationOwner === 'connect') renderState(bridge.status());
     }
 
     async function disconnect() {
@@ -108,12 +125,14 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
     }
 
     async function discover() {
+        const revision = ++discoveryRevision;
         listing = true;
         renderState(bridge.status());
         showOperation('Finding accessible Codex tasks…');
         try {
             const result = await bridge.listThreads({archived: archived.checked, signal: pageSignal});
             pageSignal.throwIfAborted();
+            if (revision !== discoveryRevision) return;
             if (result.status === 'unavailable') {
                 showOperation(result.message);
                 return;
@@ -125,6 +144,33 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, onNa
                 : `${result.threads.length} Codex tasks retrieved. Some tasks remain unavailable.`);
         } finally {
             listing = false;
+            renderState(bridge.status());
+        }
+    }
+
+    async function findTask() {
+        const threadId = taskId.value;
+        if (threadId === '') {
+            showOperation('Enter a Codex task ID.');
+            return;
+        }
+        const revision = ++discoveryRevision;
+        finding = true;
+        renderState(bridge.status());
+        showOperation('Finding this Codex task…');
+        try {
+            const result = await bridge.readThread({threadId, signal: pageSignal});
+            pageSignal.throwIfAborted();
+            if (revision !== discoveryRevision) return;
+            if (result.status === 'unavailable') {
+                showOperation(result.message);
+                return;
+            }
+            results.replaceChildren();
+            renderThread(result.thread, result.observedAt);
+            showOperation('Codex task found.');
+        } finally {
+            finding = false;
             renderState(bridge.status());
         }
     }

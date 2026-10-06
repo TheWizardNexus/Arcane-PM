@@ -17,14 +17,26 @@ const view = mountConnectionsView(container, {
 });
 ```
 
-`coreClient` is optional. When omitted, the bridge reads the existing SDK client
-through `getInstalledCoreClient()`; it does not install a transport or probe a
-local port. Native composition supplies `bridge/codex-service.mjs` to the SDK
-Core runtime. The default export is the synchronous `createCodexService(options)`
+`coreClient` is optional. When omitted, the bridge observes the SDK's
+`subscribeCoreClient()` installation lifecycle, including current replay,
+retirement and terminal failure. It consumes the exact callback client and
+releases old subscriptions before attaching a replacement. It does not install
+a transport or probe a local port. Native composition supplies
+`bridge/codex-service.mjs` to the SDK Core runtime. The default export is the
+synchronous `createCodexService(options)`
 factory. Its `command`, `args` and `cwd` options select the owned Codex process;
 defaults are `codex app-server --listen stdio://`. The service's start hook
 registers event ownership without launching Codex. Only explicit connection
 starts that process; disconnect closes its standard input and observes exit.
+
+The SDK's independent `/arcane-core.js` bootstrap can load before or after the
+bridge without delaying page rendering. After attaching PM event listeners,
+the bridge observes the client's replayable `core.ready` event and reads
+`pm.codex.status`; Core waits only for that service's startup. Installation,
+dispatcher readiness, service readiness and a native Codex connection remain
+distinct. Late status/connect/disconnect results from a retired client cannot
+replace current connection presentation. Retirement cancels only the bridge's
+initial status read and subscriptions; disposal does not close the shared client.
 
 | Method | Contract |
 | --- | --- |
@@ -105,6 +117,11 @@ across replay, and exposes full protocol only in explicitly opened developer
 inspection. It offers no automatic or session-wide approval. Unsupported or
 incomplete requests retain their native conversation link.
 
+Connections also accepts an exact Codex task ID through `readThread`, then uses
+the existing local association action. This reads metadata without resuming the
+conversation or enumerating other projects. The separate task-discovery action
+remains available when the user selects broader discovery.
+
 The handoff owner must supply the exact complete prepared text or native typed
 input array. The bridge does not turn a domain handoff object into a prompt,
 prepend instructions or rewrite selected original sources.
@@ -122,10 +139,16 @@ Read-only local discovery on October 5, 2026 identified Codex CLI `0.160.0`.
 established the installed method/field shapes. Generated inspection files are
 ignored, task-owned output. No native conversation was created, resumed, sent,
 archived, restored, cancelled or deleted during discovery. Schema availability
-is not runtime evidence. Host execution and platform integration remain separate
-from the browser-only preview.
+is not runtime evidence.
 
-The installed SDK `0.62.0` public `arcane-os/core/client`,
+On October 6, 2026, the bridge owner used the supported in-app browser with the
+published SDK `0.65.0` development host on Windows. Explicit Connect reached the
+native connected state; account metadata arrived independently. Reload restored
+that connected state through the service status read without another Connect
+action. The observed host status retained connection ID `1`. This establishes
+that selected connection path, not native sends, approvals or other platforms.
+
+The installed SDK `0.65.0` public `arcane-os/core/client`,
 `arcane-os/core/runtime` and `arcane-os/event-manager` supply reusable transport,
 service lifecycle and events. PM owns the Codex operation mapping, directory/task
 association, connection presentation and handoff acknowledgment semantics. No
@@ -139,9 +162,8 @@ page. Full conversation retrieval reads the
 selected thread's complete pages alongside its metadata, without a content cap.
 Discovery uses the native state database only and avoids a file-repair scan.
 Independent operations remain independent. Foreground status changes before
-waiting; native lifecycle
-and errors have an explicit owner. Runtime timing is unmeasured because native
-execution and local tests were not selected.
+waiting; native lifecycle and errors have an explicit owner. Runtime timing is
+unmeasured. Local tests, linters and validation builds were not selected.
 
 Official references: [Codex app-server](https://learn.chatgpt.com/docs/app-server),
 [desktop deep links](https://learn.chatgpt.com/docs/reference/commands#deep-links),
