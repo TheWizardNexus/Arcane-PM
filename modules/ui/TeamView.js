@@ -428,7 +428,8 @@ export function mountTeamView(container, options) {
     let regroupTasks = false;
     let summaryChanged = true;
     let renderFrame = null;
-    const notice = element('p', 'pm-notice', 'Local records are unavailable. Use a browser with local storage support, then reopen this page.');
+    const notice = element('p', 'pm-notice', 'Task records could not be read completely. Available tasks are shown; previously displayed tasks are retained and may be out of date. Reopen Team to try again.');
+    notice.setAttribute('role', 'status');
     notice.hidden = true;
     const definitions = [
         {id: 'working', title: 'Working'},
@@ -931,13 +932,13 @@ export function mountTeamView(container, options) {
         column.visibleIds = visibleIds;
         column.column.hidden = (id === 'completed' || id === 'unobserved') && !total;
         const countText = `${total} ${total === 1 ? 'task' : 'tasks'}`;
-        const readingText = taskReadFailed ? 'Other records unavailable' : 'Opening records…';
-        column.count.textContent = tasksLoaded ? countText : total ? `${countText} loaded · ${readingText}` : taskReadFailed ? 'Unavailable' : 'Opening tasks…';
-        column.empty.hidden = !tasksLoaded || Boolean(total);
+        column.count.textContent = taskReadFailed ? `${countText} shown · List incomplete`
+            : tasksLoaded ? countText : total ? `${countText} loaded · Opening records…` : 'Opening tasks…';
+        column.empty.hidden = taskReadFailed || !tasksLoaded || Boolean(total);
         column.pagination.hidden = pages === 1;
         column.previous.disabled = column.page === 0;
         column.next.disabled = column.page + 1 >= pages;
-        column.indicator.textContent = total ? `${start + 1}–${end} of ${total}${tasksLoaded ? '' : ' loaded'} · Page ${column.page + 1} of ${pages}` : '';
+        column.indicator.textContent = total ? `${start + 1}–${end} of ${total}${taskReadFailed ? ' shown' : tasksLoaded ? '' : ' loaded'} · Page ${column.page + 1} of ${pages}` : '';
         if (id === 'completed') completed.hidden = !total;
         if (id === 'unobserved') unobserved.hidden = !total;
     }
@@ -947,15 +948,20 @@ export function mountTeamView(container, options) {
         const attentionCount = attentionIds.length;
         const readyCount = columns.get('ready').taskIds.length;
         const unobservedCount = columns.get('unobserved').taskIds.length;
-        if (tasksLoaded) {
-            attentionText.textContent = `${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} your attention.`;
-            guideAttentionText.textContent = `${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} attention`;
-            guideReadyText.textContent = `${readyCount} ${readyCount === 1 ? 'task' : 'tasks'} ready next`;
+        const available = tasksLoaded || (taskReadFailed && records.size > 0);
+        if (available) {
+            const qualifier = taskReadFailed ? 'Among shown tasks, ' : '';
+            attentionText.textContent = `${qualifier}${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} your attention.`;
+            guideAttentionText.textContent = `${qualifier}${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} attention`;
+            guideReadyText.textContent = `${qualifier}${readyCount} ${readyCount === 1 ? 'task' : 'tasks'} ready next`;
             guideReady.hidden = false;
-            showUnobserved.textContent = `${unobservedCount} ${unobservedCount === 1 ? 'task' : 'tasks'} unobserved`;
+            showUnobserved.textContent = `${unobservedCount} ${taskReadFailed ? 'shown ' : ''}${unobservedCount === 1 ? 'task' : 'tasks'} unobserved`;
+        } else if (taskReadFailed) {
+            guideAttentionText.textContent = 'Task records could not be read completely.';
+            guideReady.hidden = true;
         }
-        guideUnobserved.hidden = !tasksLoaded || !unobservedCount;
-        attentionStrip.hidden = !tasksLoaded || !attentionCount || (dismissedAttentionIds.size === attentionCount && attentionIds.every(isDismissedAttention));
+        guideUnobserved.hidden = !available || !unobservedCount;
+        attentionStrip.hidden = !available || !attentionCount || (dismissedAttentionIds.size === attentionCount && attentionIds.every(isDismissedAttention));
     }
 
     function renderBoard() {
@@ -988,7 +994,6 @@ export function mountTeamView(container, options) {
 
     async function refresh() {
         const currentRevision = ++revision;
-        taskReadFailed = false;
         const changes = new Map();
         pendingScan = changes;
         try {
@@ -999,17 +1004,22 @@ export function mountTeamView(container, options) {
             for (const [id, record] of changes) retainRecord(next, id, record);
             records = next;
             tasksLoaded = true;
+            taskReadFailed = false;
             notice.hidden = true;
             replaceTaskIndex = true;
             scheduleBoard();
         } catch (error) {
             if (disposed || signal?.aborted || revision !== currentRevision) return;
             console.error('Arcane PM task records could not be opened.', error);
+            // An unread row is not a deletion; newer record events still take precedence.
+            const next = new Map(records);
+            for (const task of error.records || []) retainRecord(next, task.id, task);
+            for (const [id, record] of changes) retainRecord(next, id, record);
+            records = next;
             taskReadFailed = true;
             notice.hidden = false;
-            for (const id of columns.keys()) changedColumns.add(id);
+            replaceTaskIndex = true;
             scheduleBoard();
-            if (!tasksLoaded) guideAttentionText.textContent = 'Task records are unavailable.';
         } finally {
             if (pendingScan === changes) pendingScan = null;
         }
