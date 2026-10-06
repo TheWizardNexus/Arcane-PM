@@ -640,7 +640,7 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
     };
     const result = {
         status: 'partial', projects: [], tasks: [], associations: [],
-        createdProjectIds: [], createdTaskIds: [], unassociated: [], failures: [], coverage
+        createdProjectIds: [], createdTaskIds: [], unassociated: [], failures: [], archiveConflicts: [], coverage
     };
     let cancellation;
     if (listing.status === 'unavailable') return {...result, status: 'unavailable', reason: listing.reason};
@@ -665,6 +665,35 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
         return current;
     }
     if (!currentDiscovery()) return result;
+    const archiveByThread = new Map();
+    for (const observation of listing.archiveObservations || []) {
+        try {
+            requireRecord(observation, 'native archive observation');
+            const threadId = text(observation.threadId, 'archive observation.threadId', true);
+            const observedAt = text(observation.observedAt, 'archive observation.observedAt', true);
+            if (typeof observation.archived !== 'boolean' || !Number.isFinite(Date.parse(observedAt))) {
+                throw dataError('PM_DATA_INPUT', 'Native archive evidence requires its boolean list filter and actual observation timestamp.');
+            }
+            let archive = archiveByThread.get(threadId);
+            if (!archive) {
+                archive = {
+                    origin: {provider: 'codex', accountId: identity.accountId, hostId: identity.hostId, threadId},
+                    archived: observation.archived, observedAt, observations: []
+                };
+                archiveByThread.set(threadId, archive);
+            }
+            if (archive.archived !== observation.archived) archive.archived = null;
+            if (Date.parse(observedAt) > Date.parse(archive.observedAt)) archive.observedAt = observedAt;
+            archive.observations.push({archived: observation.archived, observedAt, accountId: identity.accountId});
+        } catch (error) {
+            result.failures.push({stage: 'archive-observations', id: observation?.threadId ?? null, error});
+        }
+    }
+    for (const [threadId, archive] of archiveByThread) {
+        if (archive.archived === null) {
+            result.archiveConflicts.push({threadId, observations: structuredClone(archive.observations)});
+        }
+    }
     const savedCatalog = discoveryProjectCatalog(catalog, identity.hostId);
     // This membership decision is shared by accounts on one host, after native I/O finishes.
     return serializeDataEdit(`arcane-pm:discovery:${identity.hostId}`, async function importObservedWorkspace() {
@@ -755,6 +784,44 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
             await db.set(tables[recordType], fileName(record.id), record);
             publishChange(recordType, 'created', record.id, record);
             return record;
+        }
+        async function observeTaskArchive(task) {
+            let archive = archiveByThread.get(task.origin.threadId);
+            if (!archive) return task;
+            const previous = sameNativeTask(task.nativeArchiveObservation?.origin, archive.origin)
+                ? task.nativeArchiveObservation : null;
+            if (previous && Date.parse(previous.observedAt) > Date.parse(archive.observedAt)) return task;
+            if (previous && Date.parse(previous.observedAt) === Date.parse(archive.observedAt)
+                && previous.archived !== archive.archived) {
+                const observations = structuredClone(previous.observations);
+                for (const observation of archive.observations) {
+                    if (!observations.some(function retainedArchiveEvidence(known) {
+                        return known.archived === observation.archived && known.observedAt === observation.observedAt
+                            && known.accountId === observation.accountId;
+                    })) observations.push(structuredClone(observation));
+                }
+                archive = {...archive, archived: null, observations};
+                result.archiveConflicts.push({threadId: task.origin.threadId, taskId: task.id, observations: structuredClone(observations)});
+            }
+            if (previous && sameNativeOrigin(previous.origin, archive.origin)
+                && previous.archived === archive.archived && previous.observedAt === archive.observedAt
+                && previous.observations?.length === archive.observations.length
+                && previous.observations.every(function sameArchiveEvidence(observation, index) {
+                    const next = archive.observations[index];
+                    return observation.archived === next.archived && observation.observedAt === next.observedAt
+                        && observation.accountId === next.accountId;
+                })) return task;
+            if (!currentDiscovery()) return task;
+            const observedTask = {...task, nativeArchiveObservation: structuredClone(archive), updatedAt: new Date().toISOString()};
+            try {
+                await db.set(tables.task, fileName(task.id), observedTask);
+            } catch (error) {
+                if (error.name === 'AbortError') throw error;
+                result.failures.push({stage: 'archive-observations', id: task.id, threadId: task.origin.threadId, error});
+                return task;
+            }
+            publishChange('task', 'updated', task.id, observedTask, ['nativeArchiveObservation']);
+            return observedTask;
         }
         function projectFor(key, saved, cwd) {
             if (projectRequests.has(key)) return projectRequests.get(key);
@@ -882,7 +949,7 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
                             result.unassociated.push({threadId: thread.id, reason: 'task-association-changed', taskIds: [candidate.id]});
                             return;
                         }
-                        result.tasks.push(structuredClone(task));
+                        result.tasks.push(structuredClone(await observeTaskArchive(task)));
                         result.associations.push({threadId: thread.id, taskId: task.id, projectId: task.projectId, created: false});
                         includeProject(projectsById.get(task.projectId));
                     });
@@ -937,7 +1004,8 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
                 origin: {...origin, projectId: nativeProjectId, url: `codex://threads/${encodeURIComponent(thread.id)}`},
                 status: 'unknown'
             });
-            if (!selectedThread && listing.coverage?.archived === true) task.archivedAt = task.createdAt;
+            const archive = archiveByThread.get(thread.id);
+            if (archive) task.nativeArchiveObservation = structuredClone(archive);
             if (!await saveDiscoveredRecord('task', task)) return;
             tasksByThread.set(thread.id, [task]);
             result.createdTaskIds.push(task.id);
@@ -949,7 +1017,7 @@ export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgr
         for (const batch of batches) {
             if (batch.status === 'rejected') throw batch.reason;
         }
-        if (currentDiscovery() && !result.failures.length && !result.unassociated.length
+        if (currentDiscovery() && !result.failures.length && !result.unassociated.length && !result.archiveConflicts.length
             && coverage.threads.complete && (!catalog || catalog.coverage?.complete === true)) result.status = 'complete';
         return result;
     }).catch(function retainPartialDiscovery(error) {

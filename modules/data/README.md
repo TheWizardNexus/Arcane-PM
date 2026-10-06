@@ -137,6 +137,9 @@ Task fields:
 - `nativeActivity`: latest narrow native observation or `null` for a newly
   created task. Existing records can omit it. Only the native observation
   operation writes this member; ordinary task updates preserve it.
+- `nativeArchiveObservation`: optional discovery-owned archive evidence,
+  separate from PM `archivedAt` and manual `status`. Ordinary task updates
+  preserve it. Its shape and observation limits are described below.
 
 `origin` carries only `{provider, accountId?, projectId?, threadId?, hostId?, url?}`.
 `provider` is a string; omitted reference members default to `null`. Account
@@ -321,7 +324,8 @@ becomes a task with `projectId:null`.
 Task identity is exact provider, host and native thread ID, independent of the
 observing account. Repeating a discovery reuses every matching PM record and
 returns each existing association with `created:false`; it creates no new row
-when any match exists. Discovery preserves every existing field,
+when any match exists. Apart from the separately observed native archive
+metadata and its `updatedAt`, discovery preserves every existing field,
 including a manually cleared project association, assignment, labels, status,
 observations, face, archive state and original observing account. Multiple
 associated PM tasks remain separate, with no selected winner or historical
@@ -333,19 +337,64 @@ older folder project or move its existing tasks.
 New tasks use the complete native name (or native ID if unnamed), exact cwd,
 origin and original conversation link. Assignment is empty, status is
 `unknown`, and observed activity is unset. Conversation content is imported
-through the sources owner. An explicitly archived thread listing initializes
-only newly created tasks as PM-archived; a selected read has no inferred
-archive state. A project never derives archive state from a thread.
+through the sources owner. New imported tasks remain PM-active; a native
+archive listing does not set PM `archivedAt` or planning `status`. Existing
+PM archive choices stay unchanged, including records imported by earlier code.
+A project never derives archive state from a thread.
 `projectId` overrides grouping only for a new, explicitly selected single
 thread read, including explicit null; it never moves an existing PM task.
 
+The listing's separate `archiveObservations` supplies actual
+`{threadId, archived, observedAt}` evidence. Bridge records each source page's
+receipt time and its archive filter without altering native thread records.
+Data indexes these observations once per discovery and stores this narrow
+latest-discovery snapshot on each exactly matched PM task:
+
+```js
+nativeArchiveObservation: {
+    origin: {provider: 'codex', accountId, hostId, threadId},
+    archived: true, // false for active; null when both partitions returned the ID
+    observedAt,
+    observations: [{archived: true, observedAt, accountId}]
+}
+```
+
+`observedAt` is the latest page receipt in this snapshot, never the time a
+native task was archived or restored. The lists are not an atomic snapshot.
+An ID returned by both partitions retains every supplied observation and has
+`archived:null`; completion order does not select a winner. An absent field
+means no native archive evidence has been saved. A selected or assignment-recovery
+read has no archive evidence and leaves existing metadata unchanged. Missing
+threads, partial lists and failed partitions never infer an archive, restore,
+deletion or reassociation.
+
+Existing associations receive archive metadata inside their existing record
+edit boundary, after rereading and matching provider, exact host and thread.
+Their historical account association stays unchanged. The outer origin records
+the incoming discovery's observing account; each observation retains its own
+actual account, including equal-time evidence retained across account changes.
+An older observation snapshot cannot replace a
+newer saved one. An identical replay makes no write; a later observation of the
+same archive state updates its actual observation time. Contradictory saved and
+incoming snapshots at the same timestamp retain their combined evidence as
+uncertain; a same-time single-partition replay cannot erase a saved conflict.
+Accepted updates change only `nativeArchiveObservation` and `updatedAt`, and emit
+`changedFields:['nativeArchiveObservation']`; authored revisions stay unchanged.
+A failed write reports its PM ID and retains the readable prior record while
+other associations continue. New tasks save metadata in their one creation
+write. This adds no raw native payload, growing event history, polling, native
+mutation or existing-record migration.
+
 The result contains `{status, reason?, projects, tasks, associations,
-createdProjectIds, createdTaskIds, unassociated, failures, coverage}`.
+createdProjectIds, createdTaskIds, unassociated, failures, archiveConflicts, coverage}`.
 Associations contain `{threadId, taskId, projectId, created}`. `coverage`
 separately retains thread, public-project and desktop-assignment coverage.
 `complete` requires current identity, complete supplied coverage and no
-unresolved associations or failures. `partial` retains all accepted records
-and actual failures. `unavailable` retains the bridge's reason; top-level
+unresolved associations, failures or archive conflicts. `archiveConflicts`
+contains each affected native thread ID and its complete observation list.
+Conflicts with saved equal-time evidence also identify the affected PM task ID.
+`partial` retains all accepted records and actual failures. `unavailable`
+retains the bridge's reason; top-level
 `unassociated` identifies missing native identity or a catalog host mismatch
 and performs no writes. Unresolved rows identify their native thread/project
 and, when relevant, candidate PM IDs. An unreadable PM inventory rejects before
