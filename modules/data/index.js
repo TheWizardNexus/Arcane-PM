@@ -358,6 +358,11 @@ function updateRecord(recordType, id, changes, action = 'updated') {
         const changedFields = Object.keys(selectedChanges).filter(function changedAuthoredField(field) {
             return !contentFields.includes(field) || selectedChanges[field] !== record[field];
         });
+        for (const field of contentFields) {
+            if (!changedFields.includes(field)) continue;
+            record.authoredFieldRevisions ??= {};
+            record.authoredFieldRevisions[field] = (record.authoredFieldRevisions[field] ?? 0) + 1;
+        }
         Object.assign(record, selectedChanges, {updatedAt: new Date().toISOString()});
         const db = await getStorage();
         await db.set(tables[recordType], fileName(id), record);

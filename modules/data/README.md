@@ -72,6 +72,26 @@ owned by this module. Create and update preserve supplied strings exactly.
 Updates change only named supplied fields. Explicit `null` clears a nullable
 association. Arrays replace only their named field; omitted arrays stay intact.
 
+`authoredFieldRevisions`, when present, is Data-owned metadata for authored
+scalar changes: project `name` and `description`, and task `title`, `assignment`
+and `projectId`. Each property's absent revision means `0`; creation establishes
+that baseline without adding revision fields. An accepted update advances only
+the revisions whose scalar values actually differ from the latest saved record,
+inside the same record edit boundary. The first real change advances its field
+to `1`. An unchanged save, observation, face selection or lifecycle update leaves
+these revisions unchanged. Existing rows are never swept or initialized on read.
+Revision metadata and the changed values commit together, and full record reads
+and notifications carry both. This metadata is not accepted as caller input.
+
+Consumers retain only the revision values relevant to their own dependencies
+when they need to detect subsequent authored changes after releasing transient
+source text. They still read the complete current record for the operation.
+These counters do not describe native conversation or source-document changes,
+record identity, content fingerprints, event history, or delivery acceptance.
+No prompt, previous field value or model response is retained by this metadata.
+Only mutations through this revision-aware Data implementation advance these
+counters; older already-open application code and direct storage writes do not.
+
 Project fields:
 
 - `name`: required nonblank string.
