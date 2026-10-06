@@ -1323,13 +1323,13 @@ a.pm-task-title:hover {
     }
 
     .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide {
-        grid-template-columns: 9.5rem minmax(0, 1fr) minmax(14rem, 1fr);
+        grid-template-columns: minmax(14rem, 1fr) minmax(0, 1fr) minmax(14rem, 1fr);
         grid-template-areas:
             "portrait title summary"
             "portrait subtitle summary"
             "portrait message summary"
             "divider divider divider"
-            "preparation open availability";
+            "open availability preparation";
         grid-template-rows: auto auto 1fr auto auto;
         align-items: center;
         gap: .5rem .9rem;
