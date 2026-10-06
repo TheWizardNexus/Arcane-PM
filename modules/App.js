@@ -17,7 +17,12 @@ const titles = {
 let selectedProject = null;
 let currentView;
 let routeLifetime;
-let projectRevision = 0;
+const projects = new Map();
+const projectOptions = new Map();
+const allProjectsOption = document.createElement('option');
+const missingProjectOption = document.createElement('option');
+let initialProjectChanges = new Map();
+let projectFrame = null;
 let bridgeReady;
 let modelsReady;
 let workflowsReady;
@@ -78,9 +83,13 @@ function getModels() {
 async function openModels() {
     const module = await import('./local-ai/index.js');
     const services = module.createPMPreparationServices(
-        {getStorage, pmData, signal: lifetime.signal}
+        {getStorage, pmData, getSources: getAvatarSources, signal: lifetime.signal}
     );
     return {...services, mountLocalAIView: module.mountLocalAIView};
+}
+
+async function getAvatarSources() {
+    return (await getSources()).sources;
 }
 
 function modelsFailed(error) {
@@ -209,41 +218,63 @@ function selectProject() {
     onNavigate(route === 'task' ? 'team' : Object.hasOwn(titles, route) ? route : 'team', {projectId: projectPicker.value || null});
 }
 
-async function refreshProjects() {
-    const revision = ++projectRevision;
+async function openProjectInventory() {
     try {
-        const projects = await pmData.listProjects({archived: false, signal: lifetime.signal});
-        if (lifetime.signal.aborted || revision !== projectRevision) return;
-        const all = document.createElement('option');
-        all.value = '';
-        all.textContent = 'All projects';
-        projectPicker.replaceChildren(all);
-        for (const project of projects) {
-            const option = document.createElement('option');
-            option.value = project.id;
-            option.textContent = project.name;
-            projectPicker.append(option);
-        }
-        if (selectedProject && !projects.some(isSelectedProject)) {
-            const missing = document.createElement('option');
-            missing.value = selectedProject;
-            missing.textContent = 'Selected project unavailable';
-            projectPicker.append(missing);
-        }
-        projectPicker.value = selectedProject || '';
+        const records = await pmData.listProjects({archived: false, signal: lifetime.signal});
+        if (lifetime.signal.aborted) return;
+        projects.clear();
+        for (const project of records) retainProject(project.id, project);
+        for (const [id, record] of initialProjectChanges) retainProject(id, record);
+        initialProjectChanges = null;
+        presentProjects();
     } catch (error) {
         if (lifetime.signal.aborted) return;
+        initialProjectChanges = null;
         console.error('Arcane PM project list could not be opened.', error);
         onStatus('Local projects could not be opened. Reopen the page to retry.');
     }
 }
 
-function isSelectedProject(project) {
-    return project.id === selectedProject;
+function retainProject(id, record) {
+    if (record && !record.archivedAt) projects.set(id, record);
+    else projects.delete(id);
+}
+
+function presentProjects() {
+    if (projectFrame !== null) cancelAnimationFrame(projectFrame);
+    projectFrame = null;
+    for (const [id, option] of projectOptions) {
+        if (projects.has(id)) continue;
+        option.remove();
+        projectOptions.delete(id);
+    }
+    const ordered = Array.from(projects.values()).sort(function projectOrder(left, right) {
+        return String(left.createdAt).localeCompare(String(right.createdAt)) || left.id.localeCompare(right.id);
+    });
+    let position = allProjectsOption.nextElementSibling;
+    for (const project of ordered) {
+        let option = projectOptions.get(project.id);
+        if (!option) {
+            option = document.createElement('option');
+            option.value = project.id;
+            projectOptions.set(project.id, option);
+        }
+        if (option.textContent !== project.name) option.textContent = project.name;
+        if (option !== position) projectPicker.insertBefore(option, position);
+        position = option.nextElementSibling;
+    }
+    if (selectedProject && !projects.has(selectedProject)) {
+        missingProjectOption.value = selectedProject;
+        projectPicker.append(missingProjectOption);
+    } else missingProjectOption.remove();
+    projectPicker.value = selectedProject || '';
 }
 
 function projectRecordChanged(change) {
-    if (change.recordType === 'project') refreshProjects();
+    if (lifetime.signal.aborted || change.recordType !== 'project') return;
+    initialProjectChanges?.set(change.id, change.record);
+    retainProject(change.id, change.record);
+    if (projectFrame === null) projectFrame = requestAnimationFrame(presentProjects);
 }
 
 function disposeView() {
@@ -260,7 +291,7 @@ function renderRoute() {
     const route = Object.hasOwn(titles, requestedRoute) ? requestedRoute : 'team';
     const parameters = new URLSearchParams(query);
     selectedProject = parameters.get('projectId') || null;
-    projectPicker.value = selectedProject || '';
+    presentProjects();
     const options = {
         pmData,
         projectId: selectedProject,
@@ -349,6 +380,7 @@ function skipToWorkspace(event) {
 function closeApplication(event) {
     if (event.persisted) return;
     lifetime.abort();
+    if (projectFrame !== null) cancelAnimationFrame(projectFrame);
     disposeView();
     Promise.allSettled(
         [bridgeReady, modelsReady, workflowsReady, sourcesReady, handoffsReady, cleanupReady]
@@ -380,7 +412,11 @@ document.querySelector('.pm-skip-link').addEventListener('click', skipToWorkspac
 document.addEventListener('keydown', handleShortcut);
 globalThis.addEventListener('hashchange', renderRoute);
 globalThis.addEventListener('pagehide', closeApplication);
+allProjectsOption.value = '';
+allProjectsOption.textContent = 'All projects';
+missingProjectOption.textContent = 'Selected project unavailable';
+projectPicker.replaceChildren(allProjectsOption);
 pmData.subscribe(projectRecordChanged, {signal: lifetime.signal});
 renderRoute();
-refreshProjects();
+openProjectInventory();
 getBridge().catch(reportBridgeFailure);
