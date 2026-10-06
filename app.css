@@ -2,7 +2,7 @@
 /* The approved PM light/dark recipe uses the shared palette contract. A selected
  * named or custom user skin keeps its own tokens and the shared scheme owner. */
 :root:not([data-user-skin]):not([data-arcane-skin="custom"]) {
-    --arcane-palette-light-background: rgb(252, 251, 249);
+    --arcane-palette-light-background: rgb(250, 247, 239);
     --arcane-palette-light-modal-background: rgb(255, 255, 255);
     --arcane-palette-light-text-color: rgb(13, 30, 57);
     --arcane-palette-light-primary-color: rgb(20, 104, 94);
@@ -32,6 +32,7 @@
     --arcane-palette-dark-danger-color: rgb(250, 153, 127);
     --arcane-palette-dark-review-color: rgb(155, 143, 204);
     --arcane-palette-dark-shadow-color: rgba(0, 18, 25, .08);
+    --pm-brand-ink: light-dark(rgb(5, 55, 69), var(--text-color));
     --pm-working-surface: light-dark(rgb(242, 249, 247), rgb(12, 62, 71));
     --pm-attention-surface: light-dark(rgb(254, 245, 237), rgb(49, 46, 58));
     --pm-ready-surface: light-dark(rgb(247, 244, 251), rgb(36, 51, 77));
@@ -149,7 +150,7 @@ html {
     align-items: center;
     gap: var(--arcane-space-3);
     padding-inline: 1.25rem .25rem;
-    color: var(--text-color);
+    color: var(--pm-brand-ink, var(--text-color));
     text-decoration: none;
 }
 
@@ -157,7 +158,7 @@ html {
     flex: 0 0 4.3125rem;
     inline-size: 4.3125rem;
     block-size: 4.3125rem;
-    color: var(--text-color);
+    color: var(--pm-brand-ink, var(--text-color));
 }
 
 .pm-brand svg path[fill] {
