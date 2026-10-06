@@ -36,15 +36,23 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
     const coverage = document.createElement('p');
     coverage.textContent = 'Discovery reads accessible Codex tasks, saved projects and their recorded assignments. Working folders supply a fallback when a task has no saved project.';
     const taskLabel = document.createElement('label');
+    taskLabel.className = 'arcane-field';
+    const taskLabelText = document.createElement('span');
+    taskLabelText.className = 'arcane-field__label';
+    taskLabelText.textContent = 'Codex task ID';
     const taskId = document.createElement('input');
     taskId.type = 'text';
     taskId.className = 'arcane-input';
-    taskLabel.append(document.createTextNode('Codex task ID'), taskId);
+    taskLabel.append(taskLabelText, taskId);
     const findButton = button('Find this task', findTask);
     const lookup = document.createElement('div');
     lookup.className = 'pm-actions';
     lookup.append(taskLabel, findButton);
     const archiveLabel = document.createElement('label');
+    archiveLabel.className = 'arcane-field';
+    const archiveLabelText = document.createElement('span');
+    archiveLabelText.className = 'arcane-field__label';
+    archiveLabelText.textContent = 'Codex task inventory';
     const archived = document.createElement('select');
     archived.className = 'arcane-input';
     for (const [value, title] of [['all', 'All tasks'], ['active', 'Unarchived tasks'], ['archived', 'Archived tasks']]) {
@@ -53,7 +61,7 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
         option.textContent = title;
         archived.append(option);
     }
-    archiveLabel.append(document.createTextNode('Codex task inventory'), archived);
+    archiveLabel.append(archiveLabelText, archived);
     const discoverButton = button('Find Codex tasks', discover);
     const discovery = document.createElement('div');
     discovery.className = 'pm-actions';

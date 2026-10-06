@@ -412,6 +412,10 @@ html {
     margin-block-start: var(--arcane-space-4);
 }
 
+.pm-connections .pm-actions:has(> .arcane-field) {
+    align-items: flex-end;
+}
+
 /* Page composition keeps the next action beside its assignment. */
 .pm-page-heading {
     display: flex;
@@ -656,6 +660,10 @@ html {
     border: 1px solid color-mix(in srgb, var(--pm-state-color) 18%, var(--arcane-border));
     border-radius: var(--arcane-radius-medium);
     background: color-mix(in srgb, var(--pm-state-color) 7%, var(--arcane-surface));
+}
+
+.pm-board:not(:has(.pm-task-card)) > .pm-column {
+    min-block-size: 0;
 }
 
 .pm-column[data-state="working"] {
@@ -1305,6 +1313,62 @@ a.pm-task-title:hover {
 
     .pm-guide-divider {
         grid-column: 1 / -1;
+    }
+}
+
+/* With no active cards, keep the guide and handoffs near the empty columns. */
+@media (min-width: 64rem) {
+    .pm-team-layout:not(:has(.pm-task-card)) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide {
+        grid-template-columns: 9.5rem minmax(0, 1fr) minmax(14rem, 1fr);
+        grid-template-areas:
+            "portrait title summary"
+            "portrait subtitle summary"
+            "portrait message summary"
+            "divider divider divider"
+            "preparation open availability";
+        grid-template-rows: auto auto 1fr auto auto;
+        align-items: center;
+        gap: .5rem .9rem;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide h2 {
+        grid-area: title;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-subtitle {
+        grid-area: subtitle;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-portrait {
+        grid-area: portrait;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide h3 {
+        grid-area: message;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-summary {
+        grid-area: summary;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-divider {
+        grid-area: divider;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-open {
+        grid-area: open;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-availability {
+        grid-area: availability;
+    }
+
+    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-preparation {
+        grid-area: preparation;
     }
 }
 
