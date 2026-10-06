@@ -24,7 +24,8 @@ export function createCodexBridge({coreClient, openURL} = {}) {
                 readConversation: false, resumeThread: false, createTask: false,
                 continueTask: false, sendHandoff: false, archiveThread: false,
                 restoreThread: false, cancelTurn: false, respondToRequest: false,
-                deleteThread: false, savedProjectRegistry: false, openThread: true
+                deleteThread: false, savedProjectRegistry: false, openThread: true,
+                readDirectory: false, readFile: false, getFileMetadata: false
             },
             observedAt: null
         };
@@ -180,6 +181,9 @@ export function createCodexBridge({coreClient, openURL} = {}) {
         listThreads: function listThreads(parameters) { return invoke('listThreads', parameters); },
         readThread: function readThread(parameters) { return invoke('readThread', parameters); },
         readConversation: function readConversation(parameters) { return invoke('readConversation', parameters); },
+        readDirectory: function readDirectory(parameters) { return invoke('readDirectory', parameters); },
+        readFile: function readFile(parameters) { return invoke('readFile', parameters); },
+        getFileMetadata: function getFileMetadata(parameters) { return invoke('getFileMetadata', parameters); },
         resumeThread: function resumeThread(parameters) { return invoke('resumeThread', parameters); },
         createTask: function createTask(parameters) { return invoke('createTask', parameters); },
         continueTask: function continueTask(parameters) { return invoke('continueTask', parameters); },

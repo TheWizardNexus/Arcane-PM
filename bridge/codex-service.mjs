@@ -1,3 +1,4 @@
+import {join} from 'node:path';
 import {CoreError, serializeCoreError} from 'arcane-os/core/contracts';
 import CodexAppServer from './CodexAppServer.mjs';
 
@@ -92,6 +93,29 @@ export function createCodexService(options = {}) {
         if (codex.state !== 'connected') return unavailable();
         const original = await codex.request('thread/read', {threadId, includeTurns: false}, {signal});
         return {status: 'available', threadId, thread: original.thread, original, observedAt: new Date().toISOString()};
+    }
+
+    async function readDirectory(parameters, {signal} = {}) {
+        if (codex.state !== 'connected') return unavailable();
+        const original = await codex.request('fs/readDirectory', parameters, {signal});
+        // Codex returns child names. PM's native host supplies routing paths on
+        // the same platform as its owned Codex process; originals stay intact.
+        const children = original.entries.map(function childRoutingPath({fileName}) {
+            return {fileName, path: join(parameters.path, fileName)};
+        });
+        return {status: 'available', path: parameters.path, original, children, observedAt: new Date().toISOString()};
+    }
+
+    async function readFile(parameters, {signal} = {}) {
+        if (codex.state !== 'connected') return unavailable();
+        const original = await codex.request('fs/readFile', parameters, {signal});
+        return {status: 'available', path: parameters.path, original, observedAt: new Date().toISOString()};
+    }
+
+    async function getFileMetadata(parameters, {signal} = {}) {
+        if (codex.state !== 'connected') return unavailable();
+        const original = await codex.request('fs/getMetadata', parameters, {signal});
+        return {status: 'available', path: parameters.path, original, observedAt: new Date().toISOString()};
     }
 
     async function readConversation({threadId}, {signal} = {}) {
@@ -255,6 +279,9 @@ export function createCodexService(options = {}) {
             'pm.codex.listProjects': listProjects,
             'pm.codex.readConversation': readConversation,
             'pm.codex.readThread': readThread,
+            'pm.codex.readDirectory': readDirectory,
+            'pm.codex.readFile': readFile,
+            'pm.codex.getFileMetadata': getFileMetadata,
             'pm.codex.resumeThread': resumeThread,
             'pm.codex.createTask': createTask,
             'pm.codex.continueTask': continueTask,

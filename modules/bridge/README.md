@@ -39,6 +39,9 @@ starts that process; disconnect closes its standard input and observes exit.
 | `listProjects({archived, signal})` | Observed working-folder associations from threads, with native project IDs when present. This is not a saved-project registry. |
 | `readThread({threadId, signal})` | Current native thread metadata, including actual observed state. Does not resume a thread. |
 | `readConversation({threadId, signal})` | Complete accessible turns and original page responses, plus separate coverage. Unavailable/partial history is explicit. |
+| `readDirectory({path, signal})` | Native direct-child listing in `original.entries`, with separate `children:[{fileName,path}]` routing metadata joined by the local native host. No recursive traversal. |
+| `readFile({path, signal})` | Complete original content in native `original.dataBase64`; Sources owns transport decoding to a retained File. |
+| `getFileMetadata({path, signal})` | Native file/directory/link flags and real timestamps in `original`. A zero timestamp means unavailable. |
 | `resumeThread({threadId, signal})` | Native resume; required before continuing a thread that is not loaded by this connection. It is separate from a read. |
 | `createTask({cwd, content, signal})` | Native thread creation and initial turn; new PM-created tasks select `gpt-6-astra` / `ultra`. |
 | `continueTask({threadId, content, signal})` | Resume and submit the complete supplied content to that thread. |
@@ -64,6 +67,23 @@ Original native items may contain protocol/developer material. Sources owns
 the selection of ordinary visible messages for saved human-readable history;
 the bridge neither persists raw protocol nor replaces originals with summaries.
 Missing full-history access is not permission to scrape Codex's private database.
+
+Working-folder reads use Codex's public `fs/readDirectory`, `fs/readFile` and
+`fs/getMetadata` operations. Each result is `{status:'available',path,original,
+observedAt}`; the original native response remains unchanged. Directory entry
+names are direct children. PM's host joins the requested directory and each
+name with its platform's standard path API, returning separate child routing
+metadata. It does not claim that Codex returned those absolute child paths.
+The configured Codex process and this adapter operate on the same host.
+
+Sources owns the user-selected root, traversal, stable source associations,
+full original retention, text decoding support and explicit refresh. Directory
+coverage and readable-text coverage remain separate. Native metadata identifies
+symlinks, while file/directory flags resolve their target; traversal must account
+for links and report entries it cannot read. A missing file or cancelled refresh
+does not remove a prior original. Codex also documents connection-scoped
+`fs/watch` / `fs/changed` / `fs/unwatch`; this increment uses explicit refresh and
+does not start watches. No filesystem write, remove or copy operation is exposed.
 
 A send is accepted only after an actual `turn/start` response. The successful
 result contains `accepted:true`, `status:'accepted'`, `threadId`, `turnId`,
