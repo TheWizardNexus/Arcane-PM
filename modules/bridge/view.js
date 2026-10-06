@@ -45,9 +45,15 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
     lookup.className = 'pm-actions';
     lookup.append(taskLabel, findButton);
     const archiveLabel = document.createElement('label');
-    const archived = document.createElement('input');
-    archived.type = 'checkbox';
-    archiveLabel.append(archived, document.createTextNode(' Show archived Codex tasks'));
+    const archived = document.createElement('select');
+    archived.className = 'arcane-input';
+    for (const [value, title] of [['all', 'All tasks'], ['active', 'Unarchived tasks'], ['archived', 'Archived tasks']]) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = title;
+        archived.append(option);
+    }
+    archiveLabel.append(document.createTextNode('Codex task inventory'), archived);
     const discoverButton = button('Find Codex tasks', discover);
     const discovery = document.createElement('div');
     discovery.className = 'pm-actions';
@@ -131,9 +137,11 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
         renderState(bridge.status());
         showOperation('Finding accessible Codex tasks…');
         try {
+            const parameters = {signal: pageSignal};
+            if (archived.value !== 'all') parameters.archived = archived.value === 'archived';
             const workspace = discoverTasks
-                ? await discoverTasks({archived: archived.checked, signal: pageSignal})
-                : await bridge.discoverWorkspace({archived: archived.checked, signal: pageSignal});
+                ? await discoverTasks(parameters)
+                : await bridge.discoverWorkspace(parameters);
             pageSignal.throwIfAborted();
             if (revision !== discoveryRevision) return;
             const result = workspace.threads ?? workspace;
@@ -142,10 +150,15 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, conn
                 return;
             }
             results.replaceChildren();
-            for (const thread of result.threads) renderThread(thread, workspace);
+            const rendered = new Set();
+            for (const thread of result.threads) {
+                if (rendered.has(thread.id)) continue;
+                rendered.add(thread.id);
+                renderThread(thread, workspace);
+            }
             showOperation(result.coverage.complete && workspace.projectCatalog?.coverage.complete
-                ? `${result.threads.length} accessible Codex tasks found.`
-                : `${result.threads.length} Codex tasks retrieved. Some task or project information remains unavailable.`, null, !discoverTasks);
+                ? `${rendered.size} accessible Codex tasks found.`
+                : `${rendered.size} Codex tasks retrieved. Some task or project information remains unavailable.`, null, !discoverTasks);
         } finally {
             listing = false;
             renderState(bridge.status());

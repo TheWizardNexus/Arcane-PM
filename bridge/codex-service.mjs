@@ -29,9 +29,11 @@ export function createCodexService(options = {}) {
         if (codex.state !== 'connected') return unavailable();
         const connectionId = codex.connection;
         const originIdentity = codex.identity();
+        const accountRevision = codex.accountRevision;
         const {cursor: requestedCursor, ...filters} = parameters;
         const threads = [];
         const pages = [];
+        const archiveObservations = [];
         let cursor = requestedCursor;
         let complete = false;
         let failure = null;
@@ -50,7 +52,11 @@ export function createCodexService(options = {}) {
                 if (!Array.isArray(page.data)) {
                     throw new CoreError({code: 'PM_CODEX_THREAD_PAGE_INVALID', message: 'Codex returned an incomplete thread page.'});
                 }
-                for (const thread of page.data) threads.push(thread);
+                const observedAt = new Date().toISOString();
+                for (const thread of page.data) {
+                    threads.push(thread);
+                    archiveObservations.push({threadId: thread.id, archived: parameters.archived === true, observedAt});
+                }
                 cursor = page.nextCursor ?? null;
             } while (cursor !== null);
             complete = requestedCursor === undefined || requestedCursor === null;
@@ -61,9 +67,9 @@ export function createCodexService(options = {}) {
             codex.diagnostic('listThreads', error);
         }
         return {
-            status: complete ? 'available' : 'partial', threads, pages,
-            identity: readIdentity(connectionId, originIdentity),
-            coverage: {complete, scope: 'accessible-threads', archived: parameters.archived === true, nextCursor: cursor ?? null},
+            status: complete ? 'available' : 'partial', threads, pages, archiveObservations,
+            identity: readIdentity(connectionId, originIdentity, accountRevision),
+            coverage: {complete, scope: 'state-database-threads', archived: parameters.archived === true, nextCursor: cursor ?? null},
             ...(failure ? {diagnostic: failure} : {}),
             observedAt: new Date().toISOString()
         };
@@ -95,33 +101,137 @@ export function createCodexService(options = {}) {
     }
 
     async function discoverWorkspace(parameters = {}, context = {}) {
+        const accountRevision = codex.accountRevision;
         const {threadId, ...listParameters} = parameters;
+        const completeInventory = threadId === undefined && !Object.hasOwn(listParameters, 'archived')
+            && listParameters.cursor == null;
+        const unfilteredInventory = completeInventory && ['cwd', 'searchTerm', 'sectionId', 'originators'].every(
+            function noDiscoveryFilter(key) { return !Object.hasOwn(listParameters, key); }
+        );
         const [threads, projectCatalog] = await Promise.all([
-            threadId === undefined ? listThreads(listParameters, context) : readThread({threadId}, context),
+            threadId !== undefined ? readThread({threadId}, context)
+                : completeInventory ? listTaskInventory(listParameters, context) : listThreads(listParameters, context),
             readProjectCatalog(codex, {signal: context.signal})
         ]);
         context.signal?.throwIfAborted();
+        if (unfilteredInventory && threads.status !== 'unavailable') {
+            await readMissingProjectTasks(threads, projectCatalog, context);
+        }
+        if (accountRevision !== codex.accountRevision
+            || (threads.identity && !codex.matchIdentity(threads.identity))) threads.identity = null;
         return {threads, projectCatalog};
+    }
+
+    async function listTaskInventory(parameters, {signal} = {}) {
+        if (codex.state !== 'connected') return unavailable();
+        const connectionId = codex.connection;
+        const originIdentity = codex.identity();
+        const accountRevision = codex.accountRevision;
+        const archiveStates = [false, true];
+        const results = await Promise.allSettled(archiveStates.map(function readArchivePartition(archived) {
+            return listThreads({...parameters, archived}, {signal});
+        }));
+        signal?.throwIfAborted();
+        const threads = [];
+        const pages = [];
+        const archiveObservations = [];
+        const partitions = [];
+        for (const [index, result] of results.entries()) {
+            const archived = archiveStates[index];
+            if (result.status === 'rejected') {
+                codex.diagnostic('task-inventory', result.reason, {archived});
+                partitions.push({archived, status: 'unavailable', coverage: {complete: false}, diagnostic: serializeCoreError(result.reason)});
+                continue;
+            }
+            const listing = result.value;
+            for (const thread of listing.threads || []) threads.push(thread);
+            for (const page of listing.pages || []) pages.push(page);
+            for (const observation of listing.archiveObservations || []) archiveObservations.push(observation);
+            const {threads: partitionThreads, pages: partitionPages, archiveObservations: observations, ...partition} = listing;
+            partitions.push({archived, ...partition});
+        }
+        const complete = partitions.every(function completePartition(partition) { return partition.coverage?.complete; });
+        const identity = readIdentity(connectionId, originIdentity, accountRevision);
+        const sameIdentity = partitions.every(function partitionIdentity(partition) {
+            return partition.status === 'unavailable' || sameReadIdentity(partition.identity, identity);
+        });
+        return {
+            status: complete ? 'available' : 'partial', threads, pages, archiveObservations, partitions,
+            identity: sameIdentity ? identity : null,
+            coverage: {complete, scope: 'state-database-threads', archived: 'all', atomic: false},
+            observedAt: new Date().toISOString()
+        };
+    }
+
+    async function readMissingProjectTasks(listing, projectCatalog, {signal} = {}) {
+        const assignments = projectCatalog.desktop?.threadAssignments;
+        const known = new Set(listing.threads.map(function listedThreadId(thread) { return thread.id; }));
+        const missing = assignments && typeof assignments === 'object' && !Array.isArray(assignments)
+            ? Object.keys(assignments).filter(function unlistedAssignedThread(threadId) { return !known.has(threadId); }) : [];
+        const results = new Array(missing.length);
+        let position = 0;
+        async function readAssignedThread() {
+            while (position < missing.length) {
+                signal?.throwIfAborted();
+                const index = position++;
+                const threadId = missing[index];
+                try {
+                    const result = await readThread({threadId}, {signal});
+                    results[index] = {threadId, ...result};
+                } catch (error) {
+                    if (signal?.aborted) throw error;
+                    codex.diagnostic('assigned-thread-read', error, {threadId});
+                    results[index] = {threadId, status: 'unavailable', diagnostic: serializeCoreError(error)};
+                }
+            }
+        }
+        const workers = Array.from({length: Math.min(4, missing.length)}, readAssignedThread);
+        await Promise.all(workers);
+        signal?.throwIfAborted();
+        for (const result of results) {
+            if (result.thread) listing.threads.push(result.thread);
+            if (result.thread && !sameReadIdentity(result.identity, listing.identity)) listing.identity = null;
+        }
+        const complete = projectCatalog.desktop?.coverage?.complete === true
+            && results.every(function assignmentReadComplete(result) { return result.status === 'available'; });
+        listing.assignmentReads = results;
+        listing.coverage = {...listing.coverage, assignmentsComplete: complete};
+        if (!complete) {
+            listing.coverage.complete = false;
+            listing.status = 'partial';
+        }
+        // Assignment reads retain their own observed identities. Retire the
+        // combined mapping if any connection/account changed while they ran.
+        const selected = listing.identity;
+        if (selected && !codex.matchIdentity(selected)) listing.identity = null;
     }
 
     async function readThread({threadId}, {signal} = {}) {
         if (codex.state !== 'connected') return unavailable();
         const connectionId = codex.connection;
         const originIdentity = codex.identity();
+        const accountRevision = codex.accountRevision;
         const original = await codex.request('thread/read', {threadId, includeTurns: false}, {signal});
         return {
             status: 'available', threadId, thread: original.thread, original,
-            identity: readIdentity(connectionId, originIdentity),
+            identity: readIdentity(connectionId, originIdentity, accountRevision),
             observedAt: new Date().toISOString()
         };
     }
 
-    function readIdentity(connectionId, originIdentity) {
+    function readIdentity(connectionId, originIdentity, accountRevision) {
         const current = codex.identity();
-        if (!originIdentity || !current || connectionId !== codex.connection
+        if (!originIdentity || !current || connectionId !== codex.connection || accountRevision !== codex.accountRevision
             || originIdentity.accountId !== current.accountId
             || originIdentity.hostId !== current.hostId) return null;
         return {connectionId, originIdentity};
+    }
+
+    function sameReadIdentity(left, right) {
+        return Boolean(left && right && left.connectionId === right.connectionId
+            && left.originIdentity?.provider === right.originIdentity?.provider
+            && left.originIdentity?.accountId === right.originIdentity?.accountId
+            && left.originIdentity?.hostId === right.originIdentity?.hostId);
     }
 
     async function readDirectory(parameters, {signal} = {}) {

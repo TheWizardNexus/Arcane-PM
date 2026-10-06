@@ -24,8 +24,18 @@ releases old subscriptions before attaching a replacement. It does not install
 a transport or probe a local port. Native composition supplies
 `bridge/codex-service.mjs` to the SDK Core runtime. The default export is the
 synchronous `createCodexService(options)`
-factory. Its `command`, `args` and `cwd` options select the owned Codex process;
-defaults are `codex app-server --listen stdio://`. The service's start hook
+factory. Its `command`, `args` and `cwd` options select the owned Codex process.
+An explicit command remains unchanged. Without one, `codex-command.mjs` locates
+the installed executable through PATH, the documented standalone installer
+destination, the macOS Codex application bundle, or the current user's Windows
+`OpenAI.Codex` package registration. Windows discovery uses the operating system's
+package metadata and its actual bundled executable; no user path or installed
+version is embedded in source. Linux uses its installed CLI or an explicit
+command. The default arguments remain `app-server --listen stdio://`.
+Discovery is asynchronous, begins only on Connect, and drains its owned helper
+on cancellation. It installs nothing and preserves complete failures. Finding
+the Desktop executable does not attach to Desktop's running task runtime.
+The service's start hook
 registers event ownership without launching Codex. Only explicit connection
 starts that process; disconnect closes its standard input and observes exit.
 
@@ -50,7 +60,7 @@ initial status read and subscriptions; disposal does not close the shared client
 | `observeTaskActivity(listener, {threadIds:[], signal, emitCurrent:true, incremental:false})` | Connection-scoped activity for selected thread IDs. Returns `{setThreadIds,updateThreadIds,dispose}`; unchanged selections do not repeat reads. Full snapshots remain the default; incremental delivery is opt-in. |
 | `listThreads({cwd, archived, signal})` | All pages for the selected archive state and directory filter. Original thread records remain unchanged. |
 | `listProjects({archived, signal})` | Observed working-folder associations from threads, with native project IDs when present. This is not a saved-project registry. |
-| `discoverWorkspace({threadId?, archived?, cwd?, signal})` | Unchanged selected `readThread` or `listThreads` result in `threads`, alongside the complete saved `projectCatalog`. Data owns mapping. |
+| `discoverWorkspace({threadId?, archived?, cwd?, signal})` | Exact ID reads one thread. Omitted archived state reads both complete archive-state partitions; explicit archived state retains the selected `listThreads` result. Broad unfiltered discovery also reads missing saved assignment IDs. Results remain in `threads`, alongside `projectCatalog`; Data owns mapping. |
 | `readThread({threadId, signal})` | Current native thread metadata, including actual observed state. Does not resume a thread. |
 | `readConversation({threadId, signal})` | Complete accessible turns and original page responses, plus separate coverage. Unavailable/partial history is explicit. |
 | `readDirectory({path, signal})` | Native direct-child listing in `original.entries`, with separate `children:[{fileName,path}]` routing metadata joined by the local native host. No recursive traversal. |
@@ -87,6 +97,36 @@ catalog includes `hostId`, `observedAt`, the separate `native` and `desktop`
 sources, and overall coverage. Native projects and pages remain unchanged with
 their real IDs, names and complete root lists. Each source has its own
 `status`, coverage and complete diagnostic when unavailable or partial.
+
+Broad discovery drains non-archived and archived pagination independently, with
+all exported source kinds and providers. It applies no implicit working-folder,
+section or title filter. Explicit `cwd` matches the native exact-path contract;
+it is not recursive project membership. A supplied nonnull cursor retains the
+single-partition listing contract instead of sharing a cursor across partitions.
+The combined listing contains unchanged native `threads` and `pages`, separate
+`partitions` with their individual coverage and errors, and
+`archiveObservations:[{threadId,archived,observedAt}]`. Each archive timestamp is
+the local receipt time of its source page, never the time a task was archived.
+Both observations remain when a task appears in both partitions. Pagination
+does not promise an atomic snapshot. Data owns any ambiguous archive projection
+and preserves PM planning status, local archive state and existing assignments.
+
+After broad unfiltered listing and project catalogue reads finish, missing exact
+IDs in saved desktop assignments receive independent `thread/read` calls with
+four active reads at most. The complete results and failures remain in
+`assignmentReads`; available original threads join the listing. A recovered
+metadata read has no archive observation because the native Thread contract
+does not provide that field. Cancellation stops queued work. Partial partitions,
+missing assignments and unavailable assignment metadata retain partial coverage.
+Coverage explicitly names the state-database catalogue; it never claims to
+discover unindexed rollout files or ephemeral threads. No repair scan runs.
+
+The combined identity is available only while the original connection/account
+revision remains current and every contributing read has the same identity.
+Mixed or retired results remain inspectable with a null mapping identity.
+Connections defaults to All tasks and retains explicit Unarchived tasks and
+Archived tasks selections. The application-owned discovery callback maps all
+returned IDs without requiring an individual Add action for every task.
 
 The desktop source reads the expressly selected project fields from the current
 Codex home's `.codex-global-state.json`: `local-projects`,
@@ -415,6 +455,10 @@ unmeasured. Local tests, linters and validation builds were not selected.
 Official references: [Codex app-server](https://learn.chatgpt.com/docs/app-server),
 [desktop deep links](https://learn.chatgpt.com/docs/reference/commands#deep-links),
 [project and chat boundaries](https://learn.chatgpt.com/docs/projects?surface=app).
+Executable discovery also follows the documented
+[standalone installer locations](https://learn.chatgpt.com/docs/config-file/environment-variables),
+[macOS bundled CLI](https://learn.chatgpt.com/docs/reference/troubleshooting) and
+[Windows package identity](https://learn.chatgpt.com/docs/enterprise/windows-deployment).
 The installed schemas are more specific than prose about history support:
 `thread/turns/list` advertises `itemsView:'full'`; the adapter must still report
 any actual server refusal or partial view honestly.

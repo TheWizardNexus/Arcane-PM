@@ -2,10 +2,11 @@ import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {hostname} from 'node:os';
 import {CoreError, serializeCoreError} from 'arcane-os/core/contracts';
+import {resolveCodexCommand} from './codex-command.mjs';
 
 /** One PM-owned Codex stdio connection. Core owns the application's transport. */
 export class CodexAppServer {
-    constructor({command = 'codex', args = ['app-server', '--listen', 'stdio://'], cwd} = {}) {
+    constructor({command, args = ['app-server', '--listen', 'stdio://'], cwd} = {}) {
         this.command = command;
         this.args = args;
         this.cwd = cwd;
@@ -29,6 +30,7 @@ export class CodexAppServer {
         this.message = 'Connect Codex to read and send work.';
         this.processExit = null;
         this.connectionFailure = null;
+        this.commandDiscovery = null;
     }
 
     setEmitter(emit) {
@@ -160,7 +162,12 @@ export class CodexAppServer {
         this.accountKnown = false;
         let child;
         try {
-            child = spawn(this.command, this.args, {
+            const discovery = new AbortController();
+            this.commandDiscovery = discovery;
+            const command = await resolveCodexCommand(this.command, {signal: discovery.signal});
+            if (this.commandDiscovery === discovery) this.commandDiscovery = null;
+            if (!this.connectionWanted) return this.current();
+            child = spawn(command, this.args, {
                 cwd: this.cwd,
                 stdio: ['pipe', 'pipe', 'pipe'],
                 windowsHide: true,
@@ -228,6 +235,7 @@ export class CodexAppServer {
             });
             return this.current();
         } catch (error) {
+            this.commandDiscovery = null;
             if (!this.connectionWanted) return this.current();
             this.failConnection(error);
             throw error;
@@ -467,7 +475,11 @@ export class CodexAppServer {
         this.connectionFailure = error;
         this.rejectPending(error);
         this.diagnostic('connection', error);
-        this.publishState('error', 'Codex connection unavailable. Reconnect when ready.');
+        const message = error.code === 'PM_CODEX_EXECUTABLE_NOT_FOUND'
+            ? error.message : error.code === 'PM_CODEX_INSTALLATION_DISCOVERY_FAILED'
+                ? 'Codex installation could not be located. Review the host connection configuration.'
+                : 'Codex connection unavailable. Reconnect when ready.';
+        this.publishState('error', message);
         if (this.child && !this.closing) {
             const owner = this;
             this.disconnect().catch(function reportFailedConnectionDrain(drainError) {
@@ -478,8 +490,27 @@ export class CodexAppServer {
 
     disconnect() {
         this.connectionWanted = false;
+        this.commandDiscovery?.abort();
+        this.commandDiscovery = null;
         if (this.closing) return this.closing;
         if (!this.child) {
+            const connecting = this.connecting;
+            if (connecting) {
+                const owner = this;
+                const operation = finishPendingDiscovery();
+                this.closing = operation;
+                this.publishState('disconnected', 'Closing the Codex connection…');
+                return operation;
+
+                async function finishPendingDiscovery() {
+                    try { await connecting; }
+                    finally {
+                        if (owner.closing === operation) owner.closing = null;
+                        owner.publishState('disconnected', 'Codex disconnected.');
+                    }
+                    return owner.current();
+                }
+            }
             this.publishState('disconnected', 'Codex disconnected.');
             return Promise.resolve(this.current());
         }
