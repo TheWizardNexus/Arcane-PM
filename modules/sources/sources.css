@@ -1,0 +1,267 @@
+/* PM source search and handoff selection; the shell owns page scrolling. */
+.pm-sources {
+    display: grid;
+    gap: 1.25rem;
+    min-width: 0;
+    color: var(--text-color);
+}
+
+.pm-sources [hidden] {
+    display: none;
+}
+
+.pm-sources-heading h1 {
+    margin: 0 0 0.4rem;
+}
+
+.pm-sources-heading p {
+    margin: 0;
+    color: var(--muted-text-color);
+}
+
+.pm-sources-search {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+}
+
+.pm-sources label {
+    display: grid;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.pm-sources-query-label {
+    flex: 1 1 18rem;
+}
+
+.pm-sources input,
+.pm-sources select,
+.pm-sources textarea,
+.pm-sources button {
+    box-sizing: border-box;
+    max-width: 100%;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background: var(--modal-background);
+    color: var(--text-color);
+    font: inherit;
+}
+
+.pm-sources input,
+.pm-sources select,
+.pm-sources textarea {
+    min-width: 0;
+}
+
+.pm-sources button {
+    cursor: pointer;
+}
+
+.pm-sources button:hover {
+    border-color: var(--focus-color);
+}
+
+.pm-sources button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.pm-sources :is(button, input, select, textarea, a, summary, pre):focus-visible {
+    outline: 2px solid var(--focus-color);
+    outline-offset: 3px;
+}
+
+.pm-sources-tools,
+.pm-sources-selection,
+.pm-sources-status-row,
+.pm-sources-reader-heading,
+.pm-sources-reader-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.pm-sources-tools {
+    align-items: end;
+}
+
+.pm-sources-file-label {
+    flex: 1 1 18rem;
+}
+
+.pm-sources-selection {
+    margin-left: auto;
+}
+
+.pm-sources-status {
+    flex: 1 1 15rem;
+    margin: 0;
+    color: var(--muted-text-color);
+}
+
+.pm-sources-status[data-state="error"] {
+    color: var(--danger-color);
+}
+
+.pm-sources-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.pm-sources-content:has(.pm-sources-reader:not([hidden])) {
+    grid-template-columns: minmax(15rem, 0.8fr) minmax(0, 1.4fr);
+}
+
+.pm-sources-results,
+.pm-sources-reader {
+    min-width: 0;
+}
+
+.pm-sources-result-count {
+    margin: 0 0 0.75rem;
+    color: var(--muted-text-color);
+}
+
+.pm-sources-result-list,
+.pm-sources-excluded-list {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pm-sources-result,
+.pm-sources-reader {
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    background: var(--modal-background);
+}
+
+.pm-sources-result-title {
+    width: 100%;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.pm-sources-result-meta {
+    margin: 0.6rem 0;
+    color: var(--muted-text-color);
+    overflow-wrap: anywhere;
+}
+
+.pm-sources .pm-sources-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pm-sources-checkbox input {
+    flex: 0 0 auto;
+    width: 1.1rem;
+    height: 1.1rem;
+    padding: 0;
+    accent-color: var(--focus-color);
+}
+
+.pm-sources-reader-heading {
+    justify-content: space-between;
+    align-items: start;
+}
+
+.pm-sources-reader-heading h3 {
+    flex: 1 1 12rem;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.pm-sources-metadata {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.4rem 0.8rem;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+}
+
+.pm-sources-metadata dt {
+    color: var(--muted-text-color);
+}
+
+.pm-sources-metadata dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.pm-sources-reader-status {
+    color: var(--muted-text-color);
+}
+
+.pm-sources-reader-actions a {
+    color: var(--focus-color);
+}
+
+.pm-sources-original {
+    margin: 1rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-color);
+    font-family: inherit;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 4;
+}
+
+.pm-sources-note,
+.pm-sources-excluded {
+    min-width: 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.pm-sources summary {
+    cursor: pointer;
+}
+
+.pm-sources-note-form {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.pm-sources-note-form button {
+    justify-self: start;
+}
+
+.pm-sources textarea {
+    resize: vertical;
+}
+
+.pm-sources-excluded-list {
+    margin-top: 1rem;
+}
+
+.pm-sources-excluded-list li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+@media (max-width: 52rem) {
+    .pm-sources-content:has(.pm-sources-reader:not([hidden])) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pm-sources-selection {
+        margin-left: 0;
+    }
+}
