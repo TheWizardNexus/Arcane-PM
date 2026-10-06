@@ -46,7 +46,7 @@
                     "id": "stable-diffusion.cpp",
                     "version": "master-929-3f8527a",
                     "backend": "auto",
-                    "models": ["sd14"]
+                    "models": ["sd14", "sdxl-base-1.0"]
                 }
             ]
         },

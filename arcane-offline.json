@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "appId": "arcane-pm",
   "appVersion": "0.1.0",
-  "sdkVersion": "0.71.0",
+  "sdkVersion": "0.71.1",
   "revision": "development",
   "mode": "development",
   "assets": [
