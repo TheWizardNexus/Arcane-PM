@@ -120,6 +120,8 @@ for releasing its slot. Cards and model loading continue independently.
   status. They synchronously publish pending state and proceed in the background.
 - `current()` and replaying `subscribe(listener, {signal})` expose
   `{statuses: [{subjectType, subjectId, status, message, faceId}], closed}`.
+  Live updates add `incremental: true` and include only changed subjects;
+  initial replay and `current()` return the complete current status set.
   Accepted work starts with `Thinking`, waits in `pending` for models, and
   forwards actual image-owner `generating` and `saving` phases for its subject.
 - `cancelTask(id)` and `cancelProject(id)` cancel only the named subject.
@@ -129,7 +131,17 @@ Existing saved faces are reused. A new request waits for the selected local-only
 text model and selected image model to be both ready and loaded, without choosing,
 loading or downloading either model. The complete original task title,
 assignment and project description, or project name and description, reach the
-text owner in separate messages. App-owned system instructions ask for a concrete
+text owner in separate messages. Task preparation resolves the app's lazy
+`getSources()` owner only at source consumption. Native-associated tasks await
+their conversation import before `readTaskSources(taskId, {kind: 'conversation',
+signal})`; ordinary cards and model setup render independently. Every retained
+conversation message keeps its complete original content and source role in the
+source owner's returned order. Incomplete or unavailable conversation reads
+surface a source error and retain full developer diagnostics instead of sending
+partial source text. An empty retained scope describes that scope only; native
+import coverage remains a separate result. A native task missing its account,
+host or thread association exposes a reconnect action before preparation.
+App-owned system instructions ask for a concrete
 symbol representing that work, using the approved warm adult editorial style:
 soft rounded forms, deep teal, warm ivory, muted gold and restrained lavender.
 The complete actual response becomes the image prompt through the published
@@ -141,8 +153,18 @@ they are not saved in face metadata, history or later model context. The image,
 its subject association and ordinary generation metadata are the durable output.
 Initial-avatar status retains no prompt or model response.
 
+At most four task descriptions acquire complete conversation sources at once.
+Additional tasks expose their queued preparation state and remain cancellable.
+Each slot spans import, full retained-source reading and text consumption, then
+releases its conversation references before independent image generation. The
+separate text-request slot retains foreground priority; page rendering and
+project image work do not wait on the task-source queue.
+
 Data-owner `changedFields` events identify actual differences in source fields
 so status and account observations do not restart failed or cancelled work.
+Committed Sources content or association changes invalidate affected faceless
+tasks once per batch. An unknown prior-content comparison also invalidates the
+affected work without claiming the content changed. Saved images remain chosen.
 Explicit `retry: true` or a genuine source change permits another attempt while
 the subject remains faceless. Model replacement, loss of readiness, source
 changes and deletion cancel stale operations. A saved face always wins over

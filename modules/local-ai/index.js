@@ -12,7 +12,7 @@ export {mountLocalAIView} from './view.js';
 
 /** Compose PM-owned concerns once; the supplied data owner remains shared. */
 export function createPMPreparationServices(
-    {getStorage, pmData, tools = [], executeTool, signal} = {}
+    {getStorage, getSources, pmData, tools = [], executeTool, signal} = {}
 ) {
     const modelServices = createPMModelServices({getStorage, pmData, signal});
     const requestSlot = createPreparationRequestSlot({signal});
@@ -23,7 +23,7 @@ export function createPMPreparationServices(
         {imageRuntime: modelServices.getImageRuntime(), data: pmData, getStorage, signal}
     );
     const initialAvatars = createInitialAvatarPreparation(
-        {modelServices, faces, data: pmData, getStorage, acquireRequest: requestSlot.acquire, signal}
+        {modelServices, faces, data: pmData, getStorage, getSources, acquireRequest: requestSlot.acquire, signal}
     );
     let closing = null;
 
