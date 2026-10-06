@@ -602,6 +602,8 @@ export function createInitialAvatarPreparation(
         const key = `${change.recordType}:${change.id}`;
         let state = states.get(key);
         const record = change.record;
+        const settledTaskProjectChanged = state && !jobs.has(key) && change.recordType === 'task'
+            && record && state.projectId !== (record.projectId ?? null);
         const facePresent = record?.faceRef !== null && record?.faceRef !== undefined;
         if (state && facePresent) {
             const job = jobs.get(key);
@@ -645,7 +647,7 @@ export function createInitialAvatarPreparation(
             : active.source.title !== (record.title ?? '') || active.source.assignment !== (record.assignment ?? '')
                 || active.state.projectId !== (record.projectId ?? null));
         const directSourceChange = change.action === 'removed'
-            || activeSourceChanged || originChanged
+            || activeSourceChanged || originChanged || settledTaskProjectChanged
             || (change.recordType === 'task'
                 ? changed.some(function taskSourceChanged(field) {
                     return ['title', 'assignment', 'projectId'].includes(field)
