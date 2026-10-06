@@ -278,6 +278,7 @@ export function observeCodexTaskActivity(bridge, listener, {threadIds = [], sign
             case 'thread/deleted':
                 record.status = null;
                 record.turn = null;
+                record.pending.clear();
                 record.live = false;
                 record.reason = frame.method === 'thread/archived' ? 'thread-archived' : 'thread-deleted';
                 record.observedAt = receivedAt;

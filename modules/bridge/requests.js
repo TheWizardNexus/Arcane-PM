@@ -371,6 +371,19 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
                 for (const input of record.secretInputs) input.value = '';
                 renderSummary();
             }
+        } else if (frame.method === 'thread/archived' || frame.method === 'thread/deleted') {
+            for (const [requestId, record] of requests) {
+                const threadId = record.frame.params?.threadId ?? record.frame.params?.conversationId;
+                if (threadId !== params.threadId) continue;
+                record.article.remove();
+                requests.delete(requestId);
+                displayedRequests.delete(record);
+                for (const input of record.secretInputs) input.value = '';
+            }
+            for (const [key, item] of fileItems) {
+                if (item.params.threadId === params.threadId) fileItems.delete(key);
+            }
+            renderSummary();
         } else if (frame.method === 'turn/completed') {
             for (const [key, item] of fileItems) {
                 if (item.params.threadId === params.threadId && item.params.turnId === params.turn?.id) fileItems.delete(key);

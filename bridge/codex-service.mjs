@@ -250,20 +250,55 @@ export function createCodexService(options = {}) {
         return continueTask(parameters, context);
     }
 
-    async function archiveThread({threadId}, {signal} = {}) {
-        if (codex.state !== 'connected') return unavailable();
-        const acknowledgment = await codex.request('thread/archive', {threadId}, {signal, mutation: true});
+    function targetChanged() {
         return {
-            status: 'archived', threadId, acknowledgment,
-            scope: {rootThreadId: threadId, descendants: 'attempted-by-codex', descendantOutcomes: 'thread/archived-notifications'},
-            observedAt: new Date().toISOString()
+            status: 'unavailable', accepted: false, reason: 'target-changed',
+            message: 'The selected Codex connection changed. Review the task before continuing.'
         };
     }
 
-    async function restoreThread({threadId}, {signal} = {}) {
-        if (codex.state !== 'connected') return unavailable();
-        const acknowledgment = await codex.request('thread/unarchive', {threadId}, {signal, mutation: true});
-        return {status: 'restored', threadId, thread: acknowledgment.thread, acknowledgment, observedAt: new Date().toISOString()};
+    async function archiveThread({threadId, identity}, {signal} = {}) {
+        const target = codex.matchIdentity(identity);
+        if (!target) return targetChanged();
+        try {
+            const acknowledgment = await codex.request('thread/archive', {threadId}, {signal, mutation: true, selectedIdentity: target});
+            return {
+                status: 'archived', threadId, acknowledgment, identity: target,
+                scope: {rootThreadId: threadId, descendants: 'attempted-by-codex', descendantOutcomes: 'thread/archived-notifications'},
+                observedAt: new Date().toISOString()
+            };
+        } catch (error) {
+            if (error.code === 'PM_CODEX_TARGET_CHANGED') return targetChanged();
+            throw error;
+        }
+    }
+
+    async function restoreThread({threadId, identity}, {signal} = {}) {
+        const target = codex.matchIdentity(identity);
+        if (!target) return targetChanged();
+        try {
+            const acknowledgment = await codex.request('thread/unarchive', {threadId}, {signal, mutation: true, selectedIdentity: target});
+            return {status: 'restored', threadId, thread: acknowledgment.thread, acknowledgment, identity: target, observedAt: new Date().toISOString()};
+        } catch (error) {
+            if (error.code === 'PM_CODEX_TARGET_CHANGED') return targetChanged();
+            throw error;
+        }
+    }
+
+    async function deleteThread({threadId, identity}, {signal} = {}) {
+        const target = codex.matchIdentity(identity);
+        if (!target) return targetChanged();
+        try {
+            const acknowledgment = await codex.request('thread/delete', {threadId}, {signal, mutation: true, selectedIdentity: target});
+            return {
+                status: 'deleted', threadId, acknowledgment, identity: target,
+                scope: {rootThreadId: threadId, descendants: 'attempted-by-codex', descendantOutcomes: 'thread/deleted-notifications'},
+                observedAt: new Date().toISOString()
+            };
+        } catch (error) {
+            if (error.code === 'PM_CODEX_TARGET_CHANGED') return targetChanged();
+            throw error;
+        }
     }
 
     async function cancelTurn({threadId, turnId}, {signal} = {}) {
@@ -306,6 +341,7 @@ export function createCodexService(options = {}) {
             'pm.codex.sendHandoff': sendHandoff,
             'pm.codex.archiveThread': archiveThread,
             'pm.codex.restoreThread': restoreThread,
+            'pm.codex.deleteThread': deleteThread,
             'pm.codex.cancelTurn': cancelTurn,
             'pm.codex.respondToRequest': respondToRequest
         },

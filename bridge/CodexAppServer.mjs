@@ -75,7 +75,7 @@ export class CodexAppServer {
                 restoreThread: connected,
                 cancelTurn: connected,
                 respondToRequest: connected,
-                deleteThread: false,
+                deleteThread: connected,
                 openThread: true,
                 savedProjectRegistry: false
             },
@@ -97,6 +97,16 @@ export class CodexAppServer {
         const accountId = this.account?.workspaceRouting?.chatgptAccountId;
         if (!this.accountKnown || !accountId) return null;
         return {provider: 'codex', accountId, hostId: this.hostName};
+    }
+
+    matchIdentity(selected) {
+        const originIdentity = this.identity();
+        if (this.state !== 'connected' || !selected || !originIdentity
+            || selected.connectionId !== this.connection
+            || selected.originIdentity?.provider !== originIdentity.provider
+            || selected.originIdentity?.accountId !== originIdentity.accountId
+            || selected.originIdentity?.hostId !== originIdentity.hostId) return null;
+        return {connectionId: this.connection, originIdentity};
     }
 
     publishState(state, message) {
@@ -241,11 +251,15 @@ export class CodexAppServer {
                 revision = owner.accountRevision;
                 try {
                     const result = await owner.request('account/read', {refreshToken: false}, {initializing: true});
-                    owner.account = result;
-                    owner.accountKnown = true;
+                    if (revision === owner.accountRevision) {
+                        owner.account = result;
+                        owner.accountKnown = true;
+                    }
                 } catch (error) {
-                    owner.account = null;
-                    owner.accountKnown = false;
+                    if (revision === owner.accountRevision) {
+                        owner.account = null;
+                        owner.accountKnown = false;
+                    }
                     owner.diagnostic('account/read', error);
                 }
             } while (owner.child && !owner.closing && revision !== owner.accountRevision);
@@ -302,6 +316,17 @@ export class CodexAppServer {
                 this.nativeRequests.delete(frame.params?.requestId);
                 this.emit('pm.codex.state', this.current());
             }
+            if (frame.method === 'thread/archived' || frame.method === 'thread/deleted') {
+                const threadId = frame.params.threadId;
+                for (const [requestId, record] of this.nativeRequests) {
+                    const requestThreadId = record.frame.params?.threadId ?? record.frame.params?.conversationId;
+                    if (requestThreadId === threadId) this.nativeRequests.delete(requestId);
+                }
+                for (const [key, change] of this.fileChanges) {
+                    if (change.params.threadId === threadId) this.fileChanges.delete(key);
+                }
+                this.emit('pm.codex.state', this.current());
+            }
             if (frame.method === 'turn/completed') {
                 for (const [key, change] of this.fileChanges) {
                     if (change.params.threadId === frame.params?.threadId && change.params.turnId === frame.params?.turn?.id) {
@@ -326,7 +351,7 @@ export class CodexAppServer {
         }));
     }
 
-    request(method, params, {signal, mutation = false, initializing = false} = {}) {
+    request(method, params, {signal, mutation = false, initializing = false, selectedIdentity} = {}) {
         if (signal?.aborted) return Promise.reject(abortedRequest(method, false, signal.reason));
         if (!this.child || this.closing || (!initializing && this.state !== 'connected')) {
             return Promise.reject(new CoreError({code: 'PM_CODEX_DISCONNECTED', message: 'Connect Codex before this operation.'}));
@@ -335,7 +360,7 @@ export class CodexAppServer {
         const id = `arcane-pm-${this.connection}-${++this.requestSequence}`;
         let record;
         const result = new Promise(function awaitCodexResult(resolve, reject) {
-            record = {id, method, resolve, reject, signal, mutation, written: false, abandoned: false};
+            record = {id, method, resolve, reject, signal, mutation, selectedIdentity, written: false, abandoned: false};
             record.onAbort = function cancelCodexRequest() {
                 if (!owner.pending.has(id)) return;
                 record.abandoned = true;
@@ -368,6 +393,15 @@ export class CodexAppServer {
             if (request?.abandoned || request?.signal?.aborted) {
                 throw abortedRequest(request.method, false, request.signal?.reason, request.id);
             }
+            if (request?.nativeRequest && owner.nativeRequests.get(request.id) !== request.nativeRequest) {
+                throw new CoreError({code: 'PM_CODEX_REQUEST_NOT_PENDING', message: 'That Codex request is no longer pending.'});
+            }
+            if (request?.selectedIdentity && !owner.matchIdentity(request.selectedIdentity)) {
+                throw new CoreError({
+                    code: 'PM_CODEX_TARGET_CHANGED', outcome: 'not-sent',
+                    message: 'The selected Codex connection changed. Review the task before continuing.'
+                });
+            }
             if (!child || child !== owner.child || child.stdin.destroyed || child.stdin.writableEnded) {
                 throw new CoreError({code: 'PM_CODEX_DISCONNECTED', message: 'The Codex input connection is closed.'});
             }
@@ -398,18 +432,22 @@ export class CodexAppServer {
         pending.responseState = 'sending';
         this.emit('pm.codex.state', this.current());
         const frame = error === undefined ? {id: requestId, result} : {id: requestId, error};
-        const delivery = {id: requestId, method: pending.frame.method, signal, written: false};
+        const delivery = {id: requestId, method: pending.frame.method, signal, nativeRequest: pending, written: false};
         try {
             await this.write(frame, delivery);
             if (signal?.aborted) throw unknownOutcome(pending.frame.method, requestId, signal.reason);
-            pending.responseState = 'sent';
-            this.emit('pm.codex.state', this.current());
+            if (this.nativeRequests.get(requestId) === pending) {
+                pending.responseState = 'sent';
+                this.emit('pm.codex.state', this.current());
+            }
             return {status: 'sent', requestId, acknowledgment: 'stdio-write', acceptedByCodex: null, sentAt: new Date().toISOString()};
         } catch (cause) {
             // No destination response acknowledges a server-request reply.
             // Retain its owner and prevent a second send with an unknown outcome.
-            pending.responseState = delivery.written ? 'unknown' : 'pending';
-            this.emit('pm.codex.state', this.current());
+            if (this.nativeRequests.get(requestId) === pending) {
+                pending.responseState = delivery.written ? 'unknown' : 'pending';
+                this.emit('pm.codex.state', this.current());
+            }
             throw delivery.written ? unknownOutcome(pending.frame.method, requestId, cause) : cause;
         }
     }

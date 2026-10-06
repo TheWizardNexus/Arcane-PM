@@ -59,8 +59,9 @@ initial status read and subscriptions; disposal does not close the shared client
 | `createTask({cwd, content, signal})` | Native thread creation and initial turn; new PM-created tasks select `gpt-6-astra` / `ultra`. |
 | `continueTask({threadId, content, signal})` | Resume and submit the complete supplied content to that thread. |
 | `sendHandoff({threadId, content, signal})` | Same destination operation with exact prepared text. An explicit typed `input` array may be supplied instead of `content`. |
-| `archiveThread({threadId, signal})` | Native archive, including Codex's documented attempt to archive descendants. It does not remove PM records or working files. |
-| `restoreThread({threadId, signal})` | Native unarchive. |
+| `archiveThread({threadId, identity, signal})` | Native archive, including Codex's documented attempt to archive descendants. It does not remove PM records or working files. |
+| `restoreThread({threadId, identity, signal})` | Native unarchive of the selected thread; does not resume it or restore descendants. |
+| `deleteThread({threadId, identity, signal})` | Permanent native deletion of the selected stored thread and its known spawned subtree. PM records remain independent. |
 | `cancelTurn({threadId, turnId, signal})` | Requests interruption of the exact turn; completion remains an observed native event. |
 | `respondToRequest({connectionId, requestId, result, signal})` | Sends an explicit response to an actual pending native request on the observed connection. Native approval/input schemas and authority remain with Codex. |
 | `getThreadUrl(threadId)` | `codex://threads/<thread-id>`; no native state change. |
@@ -172,6 +173,35 @@ the browser preserves that uncertainty for an invoked mutation. A native
 approval/input reply has no separate response acknowledgment: `status:'sent'`
 and `acknowledgment:'stdio-write'` confirm only the local write. Pending ownership
 ends on Codex's `serverRequest/resolved` event, with execution observed separately.
+Actual `thread/archived` and `thread/deleted` notifications also retire pending
+requests and matching transient file changes for that exact thread. These
+notifications never imply that unreported descendants reached the same outcome.
+
+Archive, restore and delete require the selected read identity envelope:
+`{connectionId,originIdentity:{provider,accountId,hostId}}`. This is separate PM
+routing context; the native request remains exactly `{threadId}`. The host
+compares the selected destination at dispatch and again immediately before a
+queued stdin write. A missing or changed destination returns
+`{status:'unavailable',accepted:false,reason:'target-changed',message}` without
+sending that operation. Successful results retain the actual operation identity
+beside the unchanged native acknowledgment, the selected thread ID and the real
+observation time. Workflow owns selection, review and user-facing outcomes.
+
+The successful archive and delete responses are native empty objects. Their
+separate PM scope names the root, `descendants:'attempted-by-codex'`, and the
+applicable `thread/archived` or `thread/deleted` notification surface. Root
+acknowledgment does not establish each descendant outcome. Restore returns the
+native thread, which may remain `notLoaded`. No archive-first condition is added
+to delete. Missing roots, ephemeral threads, cross-process writers and external
+fork references can produce real native errors.
+
+Native archive/delete can stop loaded work and cancel pending requests before
+the storage operation finishes. A native error may follow runtime teardown or
+partial storage changes; it does not prove that nothing changed. Lost responses
+retain an unknown outcome. No operation retries automatically, and callers must
+inspect the selected destination before trying again. This contract reflects
+the reviewed CLI app-server; it does not establish control of other desktop
+processes or a cloud account.
 
 The Connections view mounts `mountCodexRequests` from `requests.js` before its
 initial status refresh, so replay reaches the active view. This section presents
@@ -189,10 +219,9 @@ The handoff owner must supply the exact complete prepared text or native typed
 input array. The bridge does not turn a domain handoff object into a prompt,
 prepend instructions or rewrite selected original sources.
 
-Native deletion, native chat migration across accounts, account login/logout,
-credential changes, saved-project creation and working-file deletion are outside
-this adapter. The installed CLI exposes a native delete method; that fact does
-not select it for PM's initial increment. PM-record removal remains data-owned.
+Native chat migration across accounts, account login/logout, credential changes,
+saved-project creation and working-file deletion are outside this adapter.
+PM-record removal remains data-owned.
 
 ## Evidence and implementation decision
 
@@ -214,6 +243,14 @@ After a coordinated host restart, the old browser client reported retirement;
 reload restored the explicit connection action. A subsequent Connect/Disconnect
 pass reported successful native process exit and cleared `closing` in the final
 RPC result, leaving Connect available again.
+
+A later read-only pass deliberately associated one existing saved PM task with
+the actual connection identity. Its metadata read reported `notLoaded`; the
+task card showed an unobserved saved Codex observation and unconfirmed current
+activity. Explicit Disconnect produced a disconnected observation while the
+existing manual PM status remained unchanged. No native task was resumed,
+archived, restored, deleted or sent a message during these passes. Native
+archive/restore/delete integration has source-review evidence only.
 
 The installed SDK `0.65.0` public `arcane-os/core/client`,
 `arcane-os/core/runtime` and `arcane-os/event-manager` supply reusable transport,

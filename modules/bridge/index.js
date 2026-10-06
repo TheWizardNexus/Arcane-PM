@@ -160,7 +160,7 @@ export function createCodexBridge({coreClient, openURL} = {}) {
     function throwIfMutationOutcomeUnknown(operation, error) {
         const mutatesCodex = [
             'resumeThread', 'createTask', 'continueTask', 'sendHandoff',
-            'archiveThread', 'restoreThread', 'cancelTurn', 'respondToRequest'
+            'archiveThread', 'restoreThread', 'deleteThread', 'cancelTurn', 'respondToRequest'
         ].includes(operation);
         // Core may settle cancellation or transport loss before the host reply.
         // A real native response or PM-owned outcome already provides evidence.
@@ -267,6 +267,7 @@ export function createCodexBridge({coreClient, openURL} = {}) {
         sendHandoff: function sendHandoff(parameters) { return invoke('sendHandoff', parameters); },
         archiveThread: function archiveThread(parameters) { return invoke('archiveThread', parameters); },
         restoreThread: function restoreThread(parameters) { return invoke('restoreThread', parameters); },
+        deleteThread: function deleteThread(parameters) { return invoke('deleteThread', parameters); },
         cancelTurn: function cancelTurn(parameters) { return invoke('cancelTurn', parameters); },
         respondToRequest: function respondToRequest(parameters) { return invoke('respondToRequest', parameters); }
     };
