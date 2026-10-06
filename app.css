@@ -89,7 +89,7 @@ html {
     grid-column: 1;
     grid-row: 1 / -1;
     flex-direction: column;
-    gap: var(--arcane-space-5);
+    gap: var(--arcane-space-4);
     min-block-size: 0;
     min-inline-size: 0;
     padding: var(--arcane-space-5) var(--arcane-space-4);
@@ -151,6 +151,7 @@ html {
     gap: var(--arcane-space-3);
     min-block-size: 2.75rem;
     padding: var(--arcane-space-3);
+    border-inline-start: .2rem solid transparent;
     border-radius: var(--arcane-radius-medium);
     color: var(--text-color);
     text-decoration: none;
@@ -168,6 +169,7 @@ html {
 }
 
 .pm-navigation a[aria-current="page"] {
+    border-inline-start-color: var(--accent-color);
     font-weight: 700;
     background: var(--arcane-secondary);
     color: var(--arcane-secondary-text);
@@ -177,17 +179,32 @@ html {
     display: grid;
     gap: var(--arcane-space-4);
     margin-block-start: auto;
-    padding-block-start: var(--arcane-space-5);
+    padding-block-start: var(--arcane-space-4);
 }
 
-.pm-sidebar-bottom html-import {
+.pm-appearance {
+    display: grid;
+    gap: var(--arcane-space-3);
+    min-inline-size: 0;
+    padding-block-start: var(--arcane-space-4);
+    border-block-start: 1px solid var(--arcane-border);
+}
+
+.pm-appearance h2 {
+    font-size: .85rem;
+    font-weight: 650;
+    color: var(--arcane-muted);
+}
+
+.pm-appearance html-import {
+    --app-bar-accent: var(--text-color);
+    --app-bar-active-text: var(--arcane-surface-raised);
+    --app-bar-border: var(--arcane-border);
     display: block;
     min-inline-size: 0;
 }
 
 .pm-local-caption {
-    padding-block-start: var(--arcane-space-4);
-    border-block-start: 1px solid var(--arcane-border);
     font-size: .85rem;
 }
 
@@ -210,6 +227,21 @@ html {
 
 .pm-mobile-menu {
     display: none;
+}
+
+.pm-mobile-menu .pm-menu-close-label,
+.pm-mobile-menu[aria-expanded="true"] .pm-menu-open-label {
+    display: none;
+}
+
+.pm-mobile-menu[aria-expanded="true"] .pm-menu-close-label {
+    display: inline;
+}
+
+.pm-mobile-menu[aria-expanded="true"] {
+    border-color: var(--arcane-focus);
+    background: var(--arcane-secondary);
+    color: var(--arcane-secondary-text);
 }
 
 .pm-search-button {

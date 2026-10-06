@@ -386,16 +386,19 @@
                 <a href="#local-ai" data-route="local-ai"><span aria-hidden="true">◇</span> Local preparation</a>
             </nav>
             <div class="pm-sidebar-bottom">
-                <html-import href="./node_modules/arcane-os/runtime/arcane/components/theme-switcher.html" aria-label="Appearance"></html-import>
                 <nav class="pm-navigation" aria-label="Workspace settings">
                     <a href="#connections" data-route="connections"><span aria-hidden="true">⇄</span> Connections</a>
                 </nav>
+                <section class="pm-appearance" aria-labelledby="pm-appearance-label">
+                    <h2 id="pm-appearance-label">Appearance</h2>
+                    <html-import href="./node_modules/arcane-os/runtime/arcane/components/theme-switcher.html" aria-label="Appearance"></html-import>
+                </section>
                 <p class="pm-local-caption">Your project workspace<br><span>Application in development</span></p>
             </div>
         </aside>
         <header class="pm-topbar">
-            <button class="pm-mobile-menu arcane-button arcane-button--secondary" type="button" aria-controls="pm-navigation" aria-expanded="false">Menu</button>
-            <button class="pm-search-button" type="button"><span>Find a task, chat or file</span><kbd>Ctrl K</kbd></button>
+            <button class="pm-mobile-menu arcane-button arcane-button--secondary" type="button" aria-controls="pm-navigation" aria-expanded="false"><span class="pm-menu-open-label">Menu</span><span class="pm-menu-close-label">Close menu</span></button>
+            <button class="pm-search-button" type="button" aria-keyshortcuts="Control+K Meta+K"><span>Find a task, chat or file</span><kbd>Ctrl K</kbd></button>
             <a class="pm-connection-status" href="#connections">Codex connection unavailable</a>
         </header>
         <main class="pm-main" id="pm-content" tabindex="-1">
