@@ -155,7 +155,12 @@ distinctive illustrated adult human workers and a project guide, with friendly
 expressive faces, individual hairstyles, softly shaded forms and centered
 head-and-shoulder composition suited to a round crop. The actual work informs
 their character, clothing and one subtle accessory. Deep teal, warm ivory,
-muted gold and restrained lavender keep the portraits visually consistent.
+muted gold and restrained lavender appear within the clothing and background.
+The instructions specify drawn contours, simplified facial planes, stylized
+eyes and one finished portrait. Initial generation also supplies the native
+image owner's separate `negative_prompt` parameter to discourage photography,
+lettering, labels and palette charts. These are generation instructions;
+visual comparison with the approved references establishes the actual result.
 The complete actual response becomes the image prompt through the published
 image owner. No authored source is rewritten or wrapped into that prompt.
 

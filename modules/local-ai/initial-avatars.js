@@ -222,16 +222,19 @@ export function createInitialAvatarPreparation(
                 throw new Error('The local text model returned no image description.');
             }
             job.imageRequested = true;
+            const parameters = {
+                negative_prompt: 'photograph, photorealistic, realistic skin texture, 3D render, text, lettering, captions, labels, watermark, color swatches, palette chart, collage'
+            };
             const outcome = job.state.subjectType === 'project'
                 ? await faces.ensureInitialProjectFace(
                     {
                         projectId: job.state.subjectId, model: selected.imageModel,
-                        prompt: description.content, source: job.source, signal: job.signal
+                        prompt: description.content, parameters, source: job.source, signal: job.signal
                     }
                 ) : await faces.ensureInitialFace(
                     {
                         taskId: job.state.subjectId, projectId: job.state.projectId,
-                        model: selected.imageModel, prompt: description.content,
+                        model: selected.imageModel, prompt: description.content, parameters,
                         source: job.source, signal: job.signal
                     }
                 );
@@ -451,7 +454,7 @@ export function createInitialAvatarPreparation(
             return [
                 {
                     role: 'system',
-                    content: 'Write one complete, concrete visual description for a distinctive illustrated adult human project guide. The next two user messages contain the complete project name and project description, in that order. Let the actual project purpose inform this guide\'s professional character, clothing and one subtle work-related accessory. Describe a friendly, expressive head-and-shoulders portrait, facing the viewer, with an individual face and hairstyle that are easy to recognize at a glance. Use polished warm character illustration, softly rounded forms, gentle dimensional shading and a simple muted circular backdrop. Keep the head and shoulders centered with room for a round crop, using deep teal, warm ivory, muted gold and restrained lavender accents. The person is the main subject, and the project cue supports their recognizable identity. Include no lettering or copy. Return only the complete visual description for the image model.'
+                    content: 'Write one complete, concrete visual description for a distinctive illustrated adult human project guide. The next two user messages contain the complete project name and project description, in that order. Let the actual project purpose inform this guide\'s professional character, clothing and one subtle work-related accessory. Describe a friendly, expressive head-and-shoulders portrait, facing the viewer, with an individual face and hairstyle that are easy to recognize at a glance. Use a polished warm 2D character illustration with clean drawn contours, simplified facial planes, expressive stylized eyes, softly shaded skin and one simple muted circular backdrop. Keep the full head and shoulders centered with room for a round crop. Place deep teal, warm ivory, muted gold and restrained lavender within the clothing and backdrop. Describe one finished illustrated portrait. The person is the main subject, and the project cue supports their recognizable identity. Include no lettering, copy, labels, color swatches or presentation sheets. Return only the complete visual description for the image model.'
                 },
                 {role: 'user', content: job.source.name},
                 {role: 'user', content: job.source.description}
@@ -460,7 +463,7 @@ export function createInitialAvatarPreparation(
         return [
             {
                 role: 'system',
-                content: 'Write one complete, concrete visual description for a distinctive illustrated adult human worker representing this task. The next three user messages contain the complete task title, assignment and project purpose, in that order. Any following messages contain retained task conversation source material, in the source owner\'s returned order, with each message\'s role and complete content preserved. Let the actual work inform the worker\'s professional character, clothing and one subtle work-related accessory. Describe a friendly, expressive head-and-shoulders portrait, facing the viewer, with an individual face and hairstyle that are easy to recognize at a glance. Use polished warm character illustration, softly rounded forms, gentle dimensional shading and a simple muted circular backdrop. Keep the head and shoulders centered with room for a round crop, using deep teal, warm ivory, muted gold and restrained lavender accents. The person is the main subject, and the task cue supports their recognizable identity. Include no lettering or copy. Return only the complete visual description for the image model.'
+                content: 'Write one complete, concrete visual description for a distinctive illustrated adult human worker representing this task. The next three user messages contain the complete task title, assignment and project purpose, in that order. Any following messages contain retained task conversation source material, in the source owner\'s returned order, with each message\'s role and complete content preserved. Let the actual work inform the worker\'s professional character, clothing and one subtle work-related accessory. Describe a friendly, expressive head-and-shoulders portrait, facing the viewer, with an individual face and hairstyle that are easy to recognize at a glance. Use a polished warm 2D character illustration with clean drawn contours, simplified facial planes, expressive stylized eyes, softly shaded skin and one simple muted circular backdrop. Keep the full head and shoulders centered with room for a round crop. Place deep teal, warm ivory, muted gold and restrained lavender within the clothing and backdrop. Describe one finished illustrated portrait. The person is the main subject, and the task cue supports their recognizable identity. Include no lettering, copy, labels, color swatches or presentation sheets. Return only the complete visual description for the image model.'
             },
             {role: 'user', content: job.source.title},
             {role: 'user', content: job.source.assignment},
