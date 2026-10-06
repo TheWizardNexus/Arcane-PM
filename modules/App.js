@@ -2,6 +2,7 @@ import 'arcane-os/modules/HTMLImport.js';
 import {pmData, getStorage} from './data/index.js';
 import {mountTeamView, mountTaskView} from './ui/index.js';
 import {createTaskActivity} from './task-activity.js';
+import {createTaskDiscovery} from './task-discovery.js';
 
 const content = document.querySelector('#pm-content');
 const menu = document.querySelector('.pm-mobile-menu');
@@ -45,7 +46,9 @@ async function openBridge() {
     const bridge = module.createCodexBridge();
     bridge.subscribe(updateConnection, {signal: lifetime.signal, emitCurrent: true});
     const taskActivity = createTaskActivity({pmData, bridge, signal: lifetime.signal, onError: onStatus});
-    return {bridge, taskActivity, mountConnectionsView: module.mountConnectionsView};
+    const taskDiscovery = createTaskDiscovery({pmData, bridge, signal: lifetime.signal, onStatus});
+    return {bridge, taskActivity, taskDiscovery, discoverTasks: taskDiscovery.discoverTasks,
+        mountConnectionsView: module.mountConnectionsView};
 }
 
 function getTaskActivity() {
@@ -394,6 +397,7 @@ async function releaseServices(results) {
         const service = result.value;
         if (service.dispose) closing.push(service.dispose());
         else {
+            service.taskDiscovery?.dispose?.();
             service.taskActivity?.dispose?.();
             service.bridge?.dispose?.();
             service.workflows?.dispose?.();

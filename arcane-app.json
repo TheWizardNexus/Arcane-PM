@@ -33,7 +33,8 @@
             ]
         },
         "services": [
-            {"module": "bridge/codex-service.mjs", "options": {}}
+            {"module": "bridge/codex-service.mjs", "options": {}},
+            {"module": "bridge/hooks-service.mjs", "options": {}}
         ]
     },
     "requirements": {

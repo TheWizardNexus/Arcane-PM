@@ -22,6 +22,7 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
     const lifetime = new AbortController();
     const associations = new Map();
     const byThread = new Map();
+    const rowsByThread = new Map();
     const observations = new Map();
     const changedDuringScan = new Set();
     let snapshot = null;
@@ -78,7 +79,9 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
         if (!indexed) changedDuringScan.add(change.id);
         if (!setAssociation(change.id, change.record?.origin)) return;
         selectThreads();
-        for (const row of snapshot?.threads || []) retainRow(row);
+        const origin = associations.get(change.id);
+        const row = rowsByThread.get(origin?.threadId);
+        if (row) retainTaskRow(change.id, row);
     }
 
     async function indexAssociations() {
@@ -100,36 +103,49 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
         const previous = snapshot;
         snapshot = next;
         if (previous && previous.observerId !== next.observerId) observations.clear();
-        // Loss rows retain their own origin even after the connection switches account.
-        for (const row of next.threads) retainRow(row);
-        if (!previous || previous.observerId !== next.observerId
+        const connectionChanged = !previous || previous.observerId !== next.observerId
             || previous.connection.connected !== next.connection.connected
             || previous.connection.connectionId !== next.connection.connectionId
+            || previous.connection.accountKnown !== next.connection.accountKnown
+            || previous.connection.originIdentity?.provider !== next.connection.originIdentity?.provider
             || previous.connection.originIdentity?.accountId !== next.connection.originIdentity?.accountId
-            || previous.connection.originIdentity?.hostId !== next.connection.originIdentity?.hostId) publish();
-        selectThreads();
+            || previous.connection.originIdentity?.hostId !== next.connection.originIdentity?.hostId;
+        rowsByThread.clear();
+        // Loss rows retain their own origin even after the connection switches account.
+        for (const row of next.threads) {
+            rowsByThread.set(row.threadId, row);
+            retainRow(row);
+        }
+        if (connectionChanged) {
+            publish();
+            selectThreads();
+        }
     }
 
     function retainRow(row) {
         for (const taskId of byThread.get(row.threadId) || []) {
-            const origin = associations.get(taskId);
-            if (!sameOrigin(origin, row.origin)) continue;
-            let work = observations.get(taskId);
-            if (!work) {
-                work = {taskId, origin, latest: null, pending: null, confirmed: null, running: false};
-                observations.set(taskId, work);
-            }
-            const previous = work.latest;
-            if (previous?.observerId === snapshot.observerId
-                && previous.row.observationId === row.observationId
-                && previous.row.observationRevision === row.observationRevision) continue;
-            const latest = {row, observerId: snapshot.observerId};
-            work.latest = latest;
-            // An awaiting-status placeholder has no native observation timestamp to save.
-            work.pending = row.observedAt ? latest : null;
-            if (!work.pending) continue;
-            if (!work.running) drain(work);
+            retainTaskRow(taskId, row);
         }
+    }
+
+    function retainTaskRow(taskId, row) {
+        const origin = associations.get(taskId);
+        if (!sameOrigin(origin, row.origin)) return;
+        let work = observations.get(taskId);
+        if (!work) {
+            work = {taskId, origin, latest: null, pending: null, confirmed: null, running: false};
+            observations.set(taskId, work);
+        }
+        const previous = work.latest;
+        if (previous?.observerId === snapshot.observerId
+            && previous.row.observationId === row.observationId
+            && previous.row.observationRevision === row.observationRevision) return;
+        const latest = {row, observerId: snapshot.observerId};
+        work.latest = latest;
+        // An awaiting-status placeholder has no native observation timestamp to save.
+        work.pending = row.observedAt ? latest : null;
+        if (!work.pending) return;
+        if (!work.running) drain(work);
     }
 
     async function drain(work) {
@@ -191,6 +207,7 @@ export function createTaskActivity({pmData, bridge, signal, onError}) {
         observations.clear();
         associations.clear();
         byThread.clear();
+        rowsByThread.clear();
         events.dispose();
         signal?.removeEventListener('abort', dispose);
     }
