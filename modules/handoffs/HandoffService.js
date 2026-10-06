@@ -329,12 +329,13 @@ class HandoffService {
             || !connection?.capabilities?.sendHandoff || !connection.capabilities.readThread) {
             return {available: false, message: 'Handoff delivery is unavailable through this connection. Local preparation remains available.'};
         }
-        if (!task.origin.accountId || !task.origin.hostId) {
-            return {available: false, message: 'Associate this receiving conversation with its Codex account and host in Connections before sending.'};
+        if (!task.origin.hostId) {
+            return {available: false, message: 'Associate this receiving conversation with its Codex host in Connections before sending.'};
         }
         if (!connection.connected || connection.connectionId === undefined || connection.connectionId === null
-            || !sameHandoffOrigin(task.origin, connection.originIdentity)) {
-            return {available: false, message: 'Connect to the receiving task’s recorded Codex account and host before sending.'};
+            || !connection.originIdentity?.accountId
+            || !sameHandoffHost(task.origin, connection.originIdentity)) {
+            return {available: false, message: 'Connect to Codex on the receiving task’s recorded host before sending.'};
         }
         if (record.originals.some(hasBinaryOriginal)) {
             return {available: false, message: 'This connection cannot carry the selected original files. Their complete local copies remain available.'};
@@ -363,9 +364,10 @@ class HandoffService {
                     || selected.threadId !== destination.origin.threadId
                     || selected.thread?.id !== destination.origin.threadId
                     || !connection.connected
+                    || !sameHandoffHost(destination.origin, selected.identity?.originIdentity)
                     || !sameHandoffIdentity(
                         selected.identity,
-                        {connectionId: connection.connectionId, originIdentity: destination.origin}
+                        {connectionId: connection.connectionId, originIdentity: connection.originIdentity}
                     )) {
                     throw handoffInputError('The receiving conversation or connection changed. Review its association in Connections before sending.');
                 }
@@ -536,10 +538,14 @@ function hasBinaryOriginal(original) {
     return Boolean(original.originalFileRef);
 }
 
-function sameHandoffOrigin(left, right) {
+function sameHandoffHost(left, right) {
     return left?.provider === 'codex' && right?.provider === 'codex'
-        && Boolean(left.accountId) && left.accountId === right.accountId
         && Boolean(left.hostId) && left.hostId === right.hostId;
+}
+
+function sameHandoffOrigin(left, right) {
+    return sameHandoffHost(left, right)
+        && Boolean(left.accountId) && left.accountId === right.accountId;
 }
 
 function sameHandoffIdentity(left, right) {

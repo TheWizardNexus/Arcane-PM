@@ -38,9 +38,11 @@ preserve the previous note. Local model execution depends on the model owner.
 ## Delivery and progress
 
 `deliveryAvailability(id)` reports whether the connected bridge can carry the
-saved handoff to its recorded Codex account and host. A receiving association
-without that identity is completed deliberately in Connections; local drafts
-remain available independently of the connected account. Binary originals
+saved handoff to its recorded Codex host and thread. A receiving association
+without a host is completed deliberately in Connections. Its saved account
+identifies the historical observer, not ownership of the conversation, and does
+not restrict delivery through a different currently connected account. Local
+drafts remain available independently of the connected account. Binary originals
 currently keep delivery unavailable because the bridge's native input contract
 has no complete file-transfer path.
 
@@ -49,9 +51,11 @@ connected native thread. Assignment, decisions, questions, note, and original
 text remain separate unchanged native text inputs. Control and source metadata
 use separate inputs. One fresh `readThread` metadata read selects the exact
 receiving thread and `{connectionId, originIdentity:{provider, accountId,
-hostId}}` envelope before each send. It must match the saved PM association
-and current connection. This read does not resume or send to the conversation.
-The service saves that selection in an unconfirmed attempt before the native
+hostId}}` envelope before each send. The returned thread and host must match the
+saved PM association; the complete envelope must match the current connection.
+The saved association remains unchanged. This read does not resume or send to
+the conversation. The service saves that current selection separately from the
+historical destination in an unconfirmed attempt before the native
 call and passes identity as routing metadata separately from the unchanged
 input. The bridge retains the same selection through resume and turn dispatch.
 Acceptance requires the bridge's explicit accepted status, matching
