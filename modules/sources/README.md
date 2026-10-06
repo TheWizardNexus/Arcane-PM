@@ -28,13 +28,14 @@ No original is deleted by index removal or task archival.
 | --- | --- |
 | `importSources(records, {signal, onProgress} = {})` | Retain records with `content` (complete text or null), optional `originalFile`, and source metadata. Returns `{sources, failures}`. An existing `id` explicitly refreshes that retained source. |
 | `importFiles(files, {projectId, taskId, signal, onProgress} = {})` | Retain explicitly selected browser Files. UTF-8 text is searchable; unsupported or undecodable formats retain the complete original and searchable filename metadata. |
+| `importFolder(path, {projectId, taskId, origin, signal, onProgress} = {})` | Read an explicitly selected absolute folder through the connected bridge. Retain full originals with stable source IDs and report enumeration, original-read, text and index coverage separately. |
 | `importTasks({projectId, taskId, signal, onProgress} = {})` | Refresh metadata/complete assignments from PM task records, including archived tasks. An explicit task ID refreshes its current mapping even after a project move. |
 | `importConversation(taskId, {signal, onProgress} = {})` | Ask the bridge for complete accessible history. Retain each user text part and assistant message separately, verbatim. Return visible-text coverage and explicit unavailable-attachment failures. Unsupported/partial history is reported; summaries never become complete originals. |
-| `refresh(id, options)` | Refresh task or conversation through its owner. `refresh(id, {file, signal})` retains an explicitly reselected working file under the same PM source ID. |
+| `refresh(id, options)` | Refresh task or conversation through its owner. A folder source refreshes its selected root through the read-only bridge. `refresh(id, {file, signal})` retains an explicitly reselected working file under the same PM source ID. |
 | `list({projectId, indexed, signal} = {})` | Return all corresponding metadata, including archived sources and retained sources removed from search. |
 | `query(text, {projectId, kind, signal, onProgress} = {})` | Persist the exact query, search locally using the published SDK, return `{query, matches, failures, total}`. Matches contain `{source, body, score, matchedFields}`. Every body is complete. |
 | `read(id, {signal} = {})` | Return `{source, content, originalFile, availability, freshness, failures}`. Availability is `retained` or `unavailable`; freshness is `snapshot`, `current`, or `stale`. Text and original-file reads are independent, so a readable original remains recoverable if its search text is unavailable. No missing content is fabricated. |
-| `select(id, selected = true)` / `getSelectedIds()` | Persist explicit source selection independently of navigation. |
+| `select(id, selected = true)` / `getSelectedIds()` | Persist explicit source selection across projects independently of navigation, so originals from one project can be included in another project's handoff. |
 | `getSelection({signal} = {})` | Return `{sources, unavailableIds, complete}` with full `read` results in selection order. File values remain File objects; consumers store them as files, never JSON-serialize them. |
 | `getQuery(projectId)` | Return the complete saved query, default `''`. |
 | `removeFromIndex(id)` / `restoreToIndex(id)` | Change searchable membership only; retain originals, metadata, selection, native chats and system files. |
@@ -89,6 +90,35 @@ refresh preserves original records and permits explicit retry. A partial SDK
 bootstrap is reported through its complete read failures and remains eligible
 for a later explicit rebuild; readable indexed results remain available. Raw errors stay
 in developer diagnostics; ordinary UI reports recovery actions.
+
+## Explicit working-folder import
+
+The bridge's `readDirectory`, `readFile` and `getFileMetadata` call the native
+Codex [filesystem API](https://learn.chatgpt.com/docs/app-server#filesystem).
+Schema and documentation support are distinct from actual connected access.
+The native owner supplies complete original responses and separate host-joined
+child paths; Sources uses those paths without guessing the host's path syntax.
+Base64 decoding is confined to the file transport boundary. File contents are
+retained unchanged and supported UTF-8 text becomes searchable separately.
+
+Each folder source retains its chosen root and entry location. Refreshes keep
+the same source association, search membership and selection. Native reads are
+ordered per root and bounded within each refresh. Complete originals are saved
+as they arrive, followed by one publication of current source metadata and one
+derived corpus refresh. Unrelated native waiting does not hold the search queue.
+
+Results include `coverage` with `scope: 'selected-directory'`, `rootPath`,
+`complete`, `cancelled`, `enumerationComplete`, `originalsComplete`,
+`textComplete`, `indexComplete`, `filesSeen`, and `retained`. Every failed entry
+has its exact path and phase in `failures`; raw errors remain in diagnostics.
+Unsupported text formats retain their full file originals. Descendant directory
+links that cannot be traversed with established target/cycle semantics are
+reported in `untraversed`, and previous originals survive missing entries,
+unreadable files and cancelled refreshes. This coverage concerns this selected
+refresh; it never proves access to every native file or conversation.
+
+Folder reading occurs only after an explicit import or refresh action. This
+increment adds no filesystem writes, deletes, watches or automatic polling.
 
 This increment selects source and Git delivery, plus supported browser
 verification using disposable records. Local tests, checks, linters, validation

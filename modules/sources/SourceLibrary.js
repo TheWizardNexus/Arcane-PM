@@ -25,6 +25,19 @@ function reportProgress(callback, state) {
     }
 }
 
+function supportsFileText(file) {
+    return file.type.startsWith('text/') || /\.(txt|md|json|jsonl|js|css|html|csv|log|xml|yaml|yml)$/i.test(file.name);
+}
+
+function folderAssociation(rootPath, entryPath, projectId, taskId, origin) {
+    return JSON.stringify([
+        rootPath, entryPath, projectId, taskId,
+        origin?.provider ?? null, origin?.accountId ?? null,
+        origin?.projectId ?? null, origin?.threadId ?? null,
+        origin?.hostId ?? null, origin?.url ?? null
+    ]);
+}
+
 function sourceDocument(source, body) {
     return {
         id: source.id,
@@ -52,6 +65,7 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
     const taskRevisions = new Map();
     const refreshedSources = new Set();
     const conversationRefreshes = new Map();
+    const folderRefreshes = new Map();
 
     const unsubscribe = pmData?.subscribe(
         function observeTaskChange(change) {
@@ -191,6 +205,54 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         );
     }
 
+    // Original revisions are independent files; committing metadata makes one current.
+    async function prepareSource(input, previous, {signal} = {}) {
+        assertActive(signal);
+        if (typeof input.title !== 'string' || (!input.title.trim() && input.kind !== 'file')) {
+            throw sourceError('A source title is required.', 'PM_SOURCE_INPUT');
+        }
+        if (input.content !== null && input.content !== undefined && typeof input.content !== 'string') {
+            throw sourceError('Source content must be complete text or null.', 'PM_SOURCE_INPUT');
+        }
+        const {db} = await storage();
+        const id = input.id || previous?.id || crypto.randomUUID();
+        const now = new Date().toISOString();
+        const revision = crypto.randomUUID();
+        const textKey = typeof input.content === 'string' ? `${id}-${revision}.json` : null;
+        const originalKey = input.originalFile ? `${id}-${revision}.original` : null;
+        if (textKey) await db.set(TABLES.text, textKey, {content: input.content});
+        assertActive(signal);
+        if (originalKey) await db.writeFile(TABLES.originals, originalKey, input.originalFile);
+        assertActive(signal);
+        const origin = input.origin !== undefined ? input.origin : previous?.origin ?? null;
+        return {
+            id,
+            kind: input.kind || 'note',
+            title: input.title,
+            projectId: input.projectId !== undefined ? input.projectId : previous?.projectId ?? null,
+            taskId: input.taskId !== undefined ? input.taskId : previous?.taskId ?? null,
+            accountId: input.accountId !== undefined ? input.accountId : origin?.accountId ?? null,
+            origin,
+            location: input.location !== undefined ? input.location : previous?.location ?? null,
+            importedAt: previous?.importedAt || now,
+            refreshedAt: now,
+            archivedAt: input.archivedAt !== undefined ? input.archivedAt : previous?.archivedAt ?? null,
+            indexed: input.indexed ?? previous?.indexed ?? true,
+            freshness: input.freshness || 'snapshot',
+            searchTerms: input.searchTerms ?? previous?.searchTerms ?? [],
+            textKey,
+            originalKey,
+            originalName: input.originalFile?.name || null,
+            originalType: input.originalFile?.type || null,
+            originalLastModified: input.originalLastModified !== undefined
+                ? input.originalLastModified : input.originalFile?.lastModified ?? null,
+            folder: input.folder !== undefined ? input.folder : previous?.folder ?? null,
+            nativeMetadata: input.nativeMetadata ?? null,
+            externalKey: input.externalKey !== undefined ? input.externalKey : previous?.externalKey ?? null,
+            message: input.message ?? null
+        };
+    }
+
     // The caller owns the corpus queue through lookup, revision writes and indexing.
     async function retainSources(records, options) {
         assertActive(options.signal);
@@ -202,46 +264,11 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         for (const input of records) {
             assertActive(options.signal);
             try {
-                if (typeof input.title !== 'string' || !input.title.trim()) {
-                    throw sourceError('A source title is required.', 'PM_SOURCE_INPUT');
-                }
-                if (input.content !== null && input.content !== undefined && typeof input.content !== 'string') {
-                    throw sourceError('Source content must be complete text or null.', 'PM_SOURCE_INPUT');
-                }
-                const id = input.id || crypto.randomUUID();
-                const previous = await db.get(TABLES.records, `${id}.json`, true);
-                const now = new Date().toISOString();
-                // Each retained revision has its own original keys; metadata commits last.
-                const revision = crypto.randomUUID();
-                const textKey = typeof input.content === 'string' ? `${id}-${revision}.json` : null;
-                const originalKey = input.originalFile ? `${id}-${revision}.original` : null;
-                if (textKey) await db.set(TABLES.text, textKey, {content: input.content});
-                if (originalKey) await db.writeFile(TABLES.originals, originalKey, input.originalFile);
-                const source = {
-                    id,
-                    kind: input.kind || 'note',
-                    title: input.title,
-                    projectId: input.projectId !== undefined ? input.projectId : previous?.projectId ?? null,
-                    taskId: input.taskId !== undefined ? input.taskId : previous?.taskId ?? null,
-                    accountId: input.accountId ?? input.origin?.accountId ?? null,
-                    origin: input.origin ?? null,
-                    location: input.location ?? null,
-                    importedAt: previous?.importedAt || now,
-                    refreshedAt: now,
-                    archivedAt: input.archivedAt ?? null,
-                    indexed: input.indexed ?? previous?.indexed ?? true,
-                    freshness: input.freshness || 'snapshot',
-                    searchTerms: input.searchTerms || [],
-                    textKey,
-                    originalKey,
-                    originalName: input.originalFile?.name || null,
-                    originalType: input.originalFile?.type || null,
-                    externalKey: input.externalKey ?? null,
-                    message: input.message ?? null
-                };
+                const previous = input.id ? await db.get(TABLES.records, `${input.id}.json`, true) : null;
+                const source = await prepareSource(input, previous, options);
                 assertActive(options.signal);
-                await db.set(TABLES.records, `${id}.json`, source);
-                refreshedSources.add(id);
+                await db.set(TABLES.records, `${source.id}.json`, source);
+                refreshedSources.add(source.id);
                 sources.push(source);
             } catch (error) {
                 if (options.signal?.aborted) throw error;
@@ -271,7 +298,7 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                 selected.slice(start, start + 4).map(
                     async function readSelectedFile(file) {
                         let content = null;
-                        if (file.type.startsWith('text/') || /\.(txt|md|json|jsonl|js|css|html|csv|log|xml|yaml|yml)$/i.test(file.name)) {
+                        if (supportsFileText(file)) {
                             try {
                                 const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
                                 content = decoder.decode(await file.arrayBuffer());
@@ -289,7 +316,7 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
                             title: file.name,
                             content,
                             originalFile: file,
-                            location: file.webkitRelativePath || file.name,
+                            location: options.sourceId ? undefined : file.webkitRelativePath || file.name,
                             projectId: options.projectId ?? null,
                             taskId: options.taskId ?? null,
                             freshness: 'snapshot'
@@ -305,6 +332,269 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         assertActive(options.signal);
         const retained = await importSources(inputs, options);
         return {sources: retained.sources, failures: [...failures, ...retained.failures]};
+    }
+
+    function orderFolderRefresh(path, origin, operation) {
+        const rootKey = folderAssociation(path, null, null, null, origin);
+        const prior = folderRefreshes.get(rootKey) || Promise.resolve();
+        const current = prior.then(operation, operation);
+        folderRefreshes.set(rootKey, current);
+        function releaseFolderRefresh() {
+            if (folderRefreshes.get(rootKey) === current) folderRefreshes.delete(rootKey);
+        }
+        current.then(releaseFolderRefresh, releaseFolderRefresh);
+        return current;
+    }
+
+    function importFolder(path, options = {}) {
+        if (typeof path !== 'string' || !path.trim()) {
+            throw sourceError('Choose a working folder to retain.', 'PM_SOURCE_INPUT');
+        }
+        const projectId = options.projectId ?? null;
+        const taskId = options.taskId ?? null;
+        const origin = options.origin == null ? null : structuredClone(options.origin);
+        return orderFolderRefresh(path, origin, retainFolder);
+
+        async function retainFolder() {
+            const sources = [];
+            const failures = [];
+            const coverage = {
+                scope: 'selected-directory', rootPath: path, status: 'partial',
+                complete: false, cancelled: false, enumerationComplete: false,
+                originalsComplete: false, textComplete: false, indexComplete: false,
+                filesSeen: 0, retained: 0, read: 0, staged: 0, discoveredEntries: 0,
+                untraversed: [], unsupportedText: [], missing: []
+            };
+            const associations = new Map();
+            const seenPaths = new Set();
+            const prepared = [];
+            let enumeratedRoot = false;
+            let enumerationFailed = false;
+
+            function progress(phase, entryPath) {
+                reportProgress(options.onProgress, {
+                    phase, path: entryPath, rootPath: path,
+                    filesSeen: coverage.filesSeen, read: coverage.read,
+                    staged: coverage.staged, retained: coverage.retained,
+                    discoveredEntries: coverage.discoveredEntries
+                });
+            }
+
+            function failed(entryPath, phase, error, extra = {}) {
+                failures.push({path: entryPath, phase, error, ...extra});
+            }
+
+            async function nativeRead(operation, entryPath) {
+                assertActive(options.signal);
+                if (typeof bridge?.[operation] !== 'function') {
+                    throw sourceError('Connect the working-folder host before refreshing this folder.');
+                }
+                const result = await bridge[operation]({path: entryPath, signal: options.signal});
+                assertActive(options.signal);
+                if (result?.status !== 'available') {
+                    const error = sourceError('The working-folder host could not supply this entry.');
+                    error.nativeResult = result;
+                    throw error;
+                }
+                return result;
+            }
+
+            async function retainEntry(entry, childPath) {
+                let phase = 'metadata';
+                try {
+                    const metadata = await nativeRead('getFileMetadata', childPath);
+                    if (metadata.original.isDirectory) {
+                        if (metadata.original.isSymlink) {
+                            enumerationFailed = true;
+                            coverage.untraversed.push({path: childPath, reason: 'linked-directory'});
+                            failed(childPath, 'traversal', sourceError('This linked directory needs a native resolved-target traversal contract.'));
+                        } else {
+                            directories.push(childPath);
+                        }
+                        return;
+                    }
+                    if (!metadata.original.isFile) {
+                        coverage.untraversed.push({path: childPath, reason: 'unsupported-entry'});
+                        failed(childPath, 'entry-type', sourceError('This entry is neither a readable file nor a directory.'));
+                        return;
+                    }
+                    coverage.filesSeen++;
+                    phase = 'file-read';
+                    progress('reading', childPath);
+                    const original = await nativeRead('readFile', childPath);
+                    if (typeof original.original?.dataBase64 !== 'string') {
+                        throw sourceError('The host did not return complete file content.');
+                    }
+                    // Base64 decoding belongs only to the native transport boundary.
+                    const data = Uint8Array.from(atob(original.original.dataBase64), function decodeCharacter(character) {
+                        return character.charCodeAt(0);
+                    });
+                    coverage.read++;
+                    const timestamp = metadata.original.modifiedAtMs;
+                    const lastModified = Number.isFinite(timestamp) && timestamp !== 0 ? timestamp : null;
+                    const file = new File([data], entry.fileName, {lastModified: lastModified ?? 0});
+                    let content = null;
+                    if (supportsFileText(file)) {
+                        try {
+                            content = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(data);
+                        } catch (error) {
+                            coverage.unsupportedText.push({path: childPath, reason: 'encoding'});
+                            failed(childPath, 'text-decoding', error);
+                        }
+                    } else {
+                        coverage.unsupportedText.push({path: childPath, reason: 'format'});
+                    }
+                    phase = 'retention';
+                    const key = folderAssociation(path, childPath, projectId, taskId, origin);
+                    const previous = associations.get(key);
+                    const source = await prepareSource({
+                        id: previous?.id, kind: 'file', title: entry.fileName, content,
+                        originalFile: file, originalLastModified: lastModified,
+                        projectId, taskId, origin, location: childPath,
+                        folder: {rootPath: path, entryPath: childPath},
+                        nativeMetadata: {original: metadata.original, observedAt: metadata.observedAt},
+                        freshness: 'snapshot'
+                    }, previous, options);
+                    prepared.push({key, source});
+                    associations.set(key, source);
+                    coverage.staged++;
+                    progress('retaining', childPath);
+                } catch (error) {
+                    if (options.signal?.aborted) throw error;
+                    if (phase === 'metadata') enumerationFailed = true;
+                    failed(childPath, phase, error);
+                }
+            }
+
+            const directories = [path];
+            try {
+                assertActive(options.signal);
+                progress('enumerating', path);
+                // Load the retained associations once, before any native reads for this refresh.
+                const records = await mutate(function readFolderAssociations() {
+                    return list({signal: options.signal});
+                });
+                for (const source of records) {
+                    if (source.kind !== 'file' || source.folder?.rootPath !== path) continue;
+                    const key = folderAssociation(path, source.folder.entryPath, source.projectId, source.taskId, source.origin);
+                    if (key === folderAssociation(path, source.folder.entryPath, projectId, taskId, origin)) {
+                        associations.set(key, source);
+                    }
+                }
+                const root = await nativeRead('getFileMetadata', path);
+                if (!root.original.isDirectory) throw sourceError('The selected working-folder path is not a directory.');
+                // The explicitly chosen root may itself be a link; descendant links are reported.
+                while (directories.length) {
+                    assertActive(options.signal);
+                    const directoryPath = directories.shift();
+                    let listing;
+                    try {
+                        progress('enumerating', directoryPath);
+                        listing = await nativeRead('readDirectory', directoryPath);
+                        if (!Array.isArray(listing.original?.entries) || !Array.isArray(listing.children)) {
+                            throw sourceError('The host did not return the directory entries and their routing paths.');
+                        }
+                        if (directoryPath === path) enumeratedRoot = true;
+                    } catch (error) {
+                        if (options.signal?.aborted) throw error;
+                        enumerationFailed = true;
+                        failed(directoryPath, 'enumeration', error);
+                        continue;
+                    }
+                    const childPaths = new Map(listing.children.map(function nativeChild(child) {
+                        return [child.fileName, child.path];
+                    }));
+                    const entries = listing.original.entries;
+                    coverage.discoveredEntries += entries.length;
+                    for (let position = 0; position < entries.length; position += 4) {
+                        assertActive(options.signal);
+                        const settled = await Promise.allSettled(entries.slice(position, position + 4).map(
+                            async function readDirectoryEntry(entry) {
+                                const childPath = childPaths.get(entry.fileName);
+                                if (typeof childPath !== 'string' || !childPath) {
+                                    enumerationFailed = true;
+                                    failed(directoryPath, 'entry-path', sourceError('The host did not supply this entry path.'), {entryName: entry.fileName});
+                                    return;
+                                }
+                                seenPaths.add(childPath);
+                                await retainEntry(entry, childPath);
+                            }
+                        ));
+                        assertActive(options.signal);
+                        for (const result of settled) {
+                            if (result.status === 'rejected') throw result.reason;
+                        }
+                    }
+                }
+                coverage.enumerationComplete = enumeratedRoot && !enumerationFailed;
+                if (coverage.enumerationComplete) {
+                    for (const source of records) {
+                        if (!source.folder || seenPaths.has(source.folder.entryPath)) continue;
+                        const key = folderAssociation(source.folder.rootPath, source.folder.entryPath, source.projectId, source.taskId, source.origin);
+                        if (!associations.has(key)) continue;
+                        const missing = {path: source.folder.entryPath, sourceId: source.id};
+                        coverage.missing.push(missing);
+                        failed(missing.path, 'missing', sourceError('The entry is absent from the refreshed folder; its retained original remains available.'), {sourceId: source.id});
+                    }
+                }
+                if (enumeratedRoot) await mutate(async function publishFolderRefresh() {
+                    const {db} = await storage();
+                    for (const preparedSource of prepared) {
+                        assertActive(options.signal);
+                        const source = preparedSource.source;
+                        try {
+                            const latest = await db.get(TABLES.records, `${source.id}.json`, true);
+                            if (latest && folderAssociation(latest.folder?.rootPath, latest.folder?.entryPath,
+                                latest.projectId, latest.taskId, latest.origin) !== preparedSource.key) {
+                                failed(source.folder.entryPath, 'association', sourceError('This source association changed during the refresh; its current original was preserved.'), {sourceId: source.id});
+                                continue;
+                            }
+                            const currentSource = latest ? {
+                                ...source, indexed: latest.indexed, archivedAt: latest.archivedAt,
+                                importedAt: latest.importedAt, searchTerms: latest.searchTerms
+                            } : source;
+                            assertActive(options.signal);
+                            corpusReady = false;
+                            await db.set(TABLES.records, `${source.id}.json`, currentSource);
+                            sources.push(currentSource);
+                            refreshedSources.add(source.id);
+                            coverage.retained++;
+                        } catch (error) {
+                            if (options.signal?.aborted) throw error;
+                            failed(source.folder.entryPath, 'retention', error, {sourceId: source.id});
+                        }
+                    }
+                    assertActive(options.signal);
+                    progress('indexing', path);
+                    try {
+                        const index = await rebuild({
+                            signal: options.signal,
+                            onProgress: function reportFolderIndex(state) {
+                                reportProgress(options.onProgress, {...state, phase: 'indexing', corpusPhase: state.phase, rootPath: path});
+                            }
+                        });
+                        coverage.indexComplete = index.completed === true;
+                        for (const failure of index.readCoverage?.failures || []) {
+                            const source = await db.get(TABLES.records, `${failure.key}.json`, true);
+                            failed(source?.folder?.entryPath ?? source?.location ?? null, 'index', failure, {sourceId: failure.key});
+                        }
+                    } catch (error) {
+                        if (options.signal?.aborted) throw error;
+                        failed(path, 'index', error);
+                    }
+                });
+            } catch (error) {
+                if (options.signal?.aborted || error?.name === 'AbortError') coverage.cancelled = true;
+                else failed(path, 'folder', error);
+            }
+            coverage.originalsComplete = coverage.enumerationComplete && !coverage.cancelled
+                && coverage.retained === coverage.filesSeen && !coverage.untraversed.length && !coverage.missing.length;
+            coverage.textComplete = coverage.originalsComplete && !coverage.unsupportedText.length;
+            coverage.complete = coverage.originalsComplete && coverage.textComplete && coverage.indexComplete;
+            coverage.status = coverage.cancelled ? 'cancelled' : coverage.complete ? 'complete' : 'partial';
+            progress(coverage.status, path);
+            return {sources, failures, coverage};
+        }
     }
 
     function importTasks(options = {}) {
@@ -466,7 +756,9 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         );
         const content = results[0].status === 'fulfilled' ? results[0].value : null;
         const file = results[1].status === 'fulfilled' ? results[1].value : null;
-        const originalFile = file ? new File([file], source.originalName, {type: source.originalType || ''}) : null;
+        const originalFile = file ? new File([file], source.originalName, {
+            type: source.originalType || '', lastModified: source.originalLastModified ?? 0
+        }) : null;
         const failures = [];
         for (const [position, result] of results.entries()) {
             if (result.status === 'rejected') {
@@ -485,7 +777,23 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
         if (source.kind === 'task') return importTasks({...options, taskId: source.taskId});
         if (source.kind === 'conversation') return importConversation(source.taskId, options);
         if (source.kind === 'file' && options.file) {
+            if (source.folder) return orderFolderRefresh(source.folder.rootPath, source.origin,
+                async function reselectFolderFile() {
+                    assertActive(options.signal);
+                    const {db} = await storage();
+                    const current = await db.get(TABLES.records, `${id}.json`, true);
+                    if (!current) throw sourceError('The selected source record is unavailable.');
+                    return importFiles([options.file], {
+                        ...options, sourceId: id, projectId: current.projectId, taskId: current.taskId
+                    });
+                }
+            );
             return importFiles([options.file], {...options, sourceId: id, projectId: source.projectId, taskId: source.taskId});
+        }
+        if (source.kind === 'file' && source.folder) {
+            return importFolder(source.folder.rootPath, {
+                ...options, projectId: source.projectId, taskId: source.taskId, origin: source.origin
+            });
         }
         throw sourceError('Select the working file again to retain its current original. The saved snapshot is still available.');
     }
@@ -571,6 +879,7 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
     return {
         importSources,
         importFiles,
+        importFolder,
         importTasks,
         importConversation,
         list,

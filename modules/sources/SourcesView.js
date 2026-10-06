@@ -59,6 +59,11 @@ function mountSourcesView(container, options = {}) {
             <p class="pm-sources-status" role="status" aria-live="polite">Loading retained sources…</p>
             <button type="button" data-action="cancel" hidden>Cancel</button>
         </div>
+        <section class="pm-sources-folder-coverage" aria-label="Folder import coverage" hidden>
+            <h2>Folder import</h2>
+            <p data-folder-coverage-summary></p>
+            <ul data-folder-coverage-details></ul>
+        </section>
         <div class="pm-sources-content">
             <section class="pm-sources-results" aria-label="Search results">
                 <p class="pm-sources-result-count">Loading…</p>
@@ -78,6 +83,7 @@ function mountSourcesView(container, options = {}) {
                         <input type="file" name="refresh-file">
                     </label>
                     <button type="button" data-action="import-conversation" hidden>Retain conversation</button>
+                    <button type="button" data-action="import-folder" hidden>Retain working folder</button>
                     <button type="button" data-action="open-task" hidden>Open related task</button>
                     <button type="button" data-action="index-source">Remove from search</button>
                     <a data-original-file hidden>Save original file</a>
@@ -85,6 +91,14 @@ function mountSourcesView(container, options = {}) {
                 <pre class="pm-sources-original" tabindex="0"></pre>
             </section>
         </div>
+        <details class="pm-sources-folder">
+            <summary>Add a working folder</summary>
+            <form class="pm-sources-folder-form">
+                <label>Folder path<input type="text" name="path" required autocomplete="off" placeholder="Absolute path on the connected computer"></label>
+                <p>Reads the selected folder through your Codex connection. Working files stay in place.</p>
+                <button type="submit">Retain folder</button>
+            </form>
+        </details>
         <details class="pm-sources-note">
             <summary>Add a local note</summary>
             <form class="pm-sources-note-form">
@@ -121,12 +135,17 @@ function mountSourcesView(container, options = {}) {
     const fileRefreshLabel = reader.querySelector('[data-file-refresh]');
     const fileRefreshInput = reader.querySelector('input[name="refresh-file"]');
     const conversationButton = reader.querySelector('[data-action="import-conversation"]');
+    const folderButton = reader.querySelector('[data-action="import-folder"]');
     const readerActions = reader.querySelector('.pm-sources-reader-actions');
     const relatedTaskButton = reader.querySelector('[data-action="open-task"]');
     const indexButton = reader.querySelector('[data-action="index-source"]');
     const originalLink = reader.querySelector('[data-original-file]');
     const originalText = reader.querySelector('pre');
     const noteForm = root.querySelector('.pm-sources-note-form');
+    const folderForm = root.querySelector('.pm-sources-folder-form');
+    const folderCoverage = root.querySelector('.pm-sources-folder-coverage');
+    const folderCoverageSummary = root.querySelector('[data-folder-coverage-summary]');
+    const folderCoverageDetails = root.querySelector('[data-folder-coverage-details]');
     const excluded = root.querySelector('.pm-sources-excluded');
     const excludedList = root.querySelector('.pm-sources-excluded-list');
 
@@ -139,6 +158,7 @@ function mountSourcesView(container, options = {}) {
     fileInput.addEventListener('change', handleFileImport, listenerOptions);
     fileRefreshInput.addEventListener('change', handleFileRefresh, listenerOptions);
     noteForm.addEventListener('submit', handleNoteImport, listenerOptions);
+    folderForm.addEventListener('submit', handleFolderImport, listenerOptions);
     excluded.addEventListener('toggle', handleExcludedToggle, listenerOptions);
     signal?.addEventListener(
         'abort', dispose,
@@ -153,6 +173,7 @@ function mountSourcesView(container, options = {}) {
         fileInput.disabled = true;
         taskRefreshButton.disabled = true;
         noteForm.querySelector('button').disabled = true;
+        folderForm.querySelector('button').disabled = true;
         resultCount.textContent = 'Sources unavailable';
     } else {
         announce('Loading retained sources…');
@@ -386,10 +407,12 @@ function mountSourcesView(container, options = {}) {
             }
             readerSelection.dataset.sourceSelection = id;
             readerActions.hidden = false;
-            readerRefresh.hidden = currentSource.kind === 'file' || currentSource.kind === 'note';
-            fileRefreshLabel.hidden = currentSource.kind !== 'file';
+            readerRefresh.hidden = !currentSource.folder && (currentSource.kind === 'file' || currentSource.kind === 'note');
+            readerRefresh.textContent = currentSource.folder ? 'Refresh folder' : 'Refresh source';
+            fileRefreshLabel.hidden = currentSource.kind !== 'file' || Boolean(currentSource.folder);
             fileRefreshInput.value = '';
             conversationButton.hidden = currentSource.kind !== 'task' || !currentSource.taskId || !currentSource.origin?.threadId;
+            folderButton.hidden = currentSource.kind !== 'task' || !currentSource.location;
             relatedTaskButton.hidden = !currentSource.taskId;
             indexButton.textContent = currentSource.indexed === false ? 'Restore to search' : 'Remove from search';
             readerRefresh.disabled = mutationPending;
@@ -424,6 +447,7 @@ function mountSourcesView(container, options = {}) {
         const fields = [
             ['Source', source.kind],
             ['Location', source.location],
+            ['Working folder', source.folder?.rootPath],
             ['Freshness', freshness],
             ['Message author', source.message?.role],
             ['Message part', source.message?.partIndex === null || source.message?.partIndex === undefined ? null : source.message.partIndex + 1],
@@ -482,7 +506,7 @@ function mountSourcesView(container, options = {}) {
 
     function updateSelectionControls() {
         const count = selectedIds.size;
-        selectionCount.textContent = `${count} selected for handoff`;
+        selectionCount.textContent = `${count} selected for handoff across projects`;
         handoffButton.disabled = !count || selectionWrites.size > 0;
         for (const checkbox of root.querySelectorAll('[data-source-selection]')) {
             const id = checkbox.dataset.sourceSelection;
@@ -529,19 +553,22 @@ function mountSourcesView(container, options = {}) {
         fileInput.disabled = pending;
         taskRefreshButton.disabled = pending;
         noteForm.querySelector('button').disabled = pending;
+        folderForm.querySelector('button').disabled = pending;
         readerRefresh.disabled = pending;
         fileRefreshInput.disabled = pending;
         conversationButton.disabled = pending;
+        folderButton.disabled = pending;
         indexButton.disabled = pending;
         for (const button of excludedList.querySelectorAll('button[data-action="restore"]')) button.disabled = pending;
     }
 
-    async function mutateSources(action, message) {
+    async function mutateSources(action, message, failureMessage = 'Sources could not be refreshed. Your originals and input remain available; try again.') {
         if (mutationPending || lifetime.signal.aborted) return;
         const operation = startOperation(message);
         setMutationPending(true);
         try {
             const result = await action(operation.signal, operation.progress);
+            if (result?.coverage?.scope === 'selected-directory' && !lifetime.signal.aborted) renderFolderCoverage(result);
             if (operation.signal.aborted) return;
             await runQuery();
             if (operation.signal.aborted) return;
@@ -549,13 +576,80 @@ function mountSourcesView(container, options = {}) {
             if (operation.signal.aborted) return;
             if (result?.failures?.length) {
                 console.error('Arcane PM source import had incomplete results.', result.failures);
-                announce('Readable sources were retained. Some sources could not be refreshed; try those again.', 'error');
+                const message = result.coverage?.scope === 'selected-directory' && !result.sources.length
+                    ? 'No new folder originals were retained. Review the folder coverage and refresh.'
+                    : 'Readable sources were retained. Some sources could not be refreshed; try those again.';
+                announce(message, 'error');
             }
         } catch (error) {
-            reportFailure(error, 'Sources could not be refreshed. Your originals and input remain available; try again.', operation);
+            reportFailure(error, failureMessage, operation);
         } finally {
             operation.finish();
             if (!lifetime.signal.aborted) setMutationPending(false);
+        }
+    }
+
+    function renderFolderCoverage(result) {
+        const coverage = result.coverage;
+        folderCoverage.hidden = false;
+        const state = coverage.cancelled ? 'Refresh cancelled.' : coverage.complete ? 'Folder originals retained.' : 'Folder coverage is incomplete.';
+        folderCoverageSummary.textContent = `${state} ${coverage.retained} of ${coverage.filesSeen} discovered files retained from ${coverage.rootPath}.`;
+        const fragment = document.createDocumentFragment();
+        const recoveryByPhase = {
+            enumeration: 'This directory could not be fully listed. Confirm access and refresh.',
+            'directory-read': 'This directory could not be fully listed. Confirm access and refresh.',
+            'file-read': 'The file could not be read. Any previously retained original remains available.',
+            metadata: 'File information could not be read. Confirm access and refresh.',
+            'text-decoding': 'This file could not be decoded as UTF-8 text for search.',
+            retention: 'This original could not be saved. Try refreshing the folder.',
+            index: 'Search could not finish updating. Retained originals remain available.',
+            folder: 'The folder could not be read. Connect to Codex, confirm the folder path, and refresh.',
+            association: 'This source association changed during the refresh. Its current original remains available; refresh again.'
+        };
+        for (const failure of result.failures || []) {
+            if (['traversal', 'entry-type', 'missing'].includes(failure.phase)) continue;
+            const item = document.createElement('li');
+            const path = failure.path || failure.location || coverage.rootPath;
+            item.textContent = `${path}: ${recoveryByPhase[failure.phase] || 'This entry could not be fully imported. Review its source and refresh.'}`;
+            fragment.append(item);
+        }
+        for (const entry of coverage.untraversed || []) {
+            const item = document.createElement('li');
+            const explanation = entry.reason === 'unsupported-entry'
+                ? 'This entry could not be read as a file or directory.'
+                : 'Directory link was not traversed. Choose its target explicitly to import it.';
+            item.textContent = `${typeof entry === 'string' ? entry : entry.path}: ${explanation}`;
+            fragment.append(item);
+        }
+        for (const entry of coverage.unsupportedText || []) {
+            if (entry.reason === 'encoding') continue;
+            const item = document.createElement('li');
+            const path = typeof entry === 'string' ? entry : entry.path;
+            const retained = result.sources.some(function hasRetainedOriginal(source) { return source.location === path && source.originalKey; });
+            item.textContent = `${path}: ${retained ? 'Complete file retained; this format is searchable by its name.' : 'This format has no searchable text.'}`;
+            fragment.append(item);
+        }
+        for (const entry of coverage.missing || []) {
+            const item = document.createElement('li');
+            item.textContent = `${typeof entry === 'string' ? entry : entry.path}: Absent from this refresh. Its previously retained original remains available.`;
+            fragment.append(item);
+        }
+        folderCoverageDetails.replaceChildren(fragment);
+    }
+
+    function handleFolderImport(event) {
+        event.preventDefault();
+        const path = folderForm.elements.path.value;
+        observe(
+            mutateSources(
+                importSelectedFolder,
+                'Reading the selected working folder…',
+                'The folder could not be read. Connect to Codex, confirm the folder path, and try again.'
+            )
+        );
+
+        function importSelectedFolder(operationSignal, onProgress) {
+            return sources.importFolder(path, {projectId, taskId, signal: operationSignal, onProgress});
         }
     }
 
@@ -645,6 +739,17 @@ function mountSourcesView(container, options = {}) {
                     );
                 }
                 break;
+            case 'import-folder':
+                if (currentSource?.location) {
+                    observe(
+                        mutateSources(
+                            importRelatedFolder,
+                            'Reading the task working folder…',
+                            'The working folder could not be read. Connect to Codex, confirm the task folder, and try again.'
+                        )
+                    );
+                }
+                break;
             case 'index-source':
                 if (currentSource) {
                     observe(
@@ -701,6 +806,14 @@ function mountSourcesView(container, options = {}) {
         return sources.importConversation(
             currentSource.taskId,
             {signal: operationSignal, onProgress}
+        );
+    }
+
+    function importRelatedFolder(operationSignal, onProgress) {
+        const source = currentSource;
+        return sources.importFolder(
+            source.location,
+            {projectId: source.projectId, taskId: source.taskId, origin: source.origin, signal: operationSignal, onProgress}
         );
     }
 

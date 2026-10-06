@@ -222,6 +222,7 @@
 }
 
 .pm-sources-note,
+.pm-sources-folder,
 .pm-sources-excluded {
     min-width: 0;
     padding-top: 1rem;
@@ -232,14 +233,23 @@
     cursor: pointer;
 }
 
-.pm-sources-note-form {
+.pm-sources-note-form,
+.pm-sources-folder-form {
     display: grid;
     gap: 0.75rem;
     margin-top: 1rem;
 }
 
-.pm-sources-note-form button {
+.pm-sources-note-form button,
+.pm-sources-folder-form button {
     justify-self: start;
+}
+
+.pm-sources-folder-coverage {
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    overflow-wrap: anywhere;
 }
 
 .pm-sources textarea {
