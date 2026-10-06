@@ -126,13 +126,14 @@ function attentionRecord(value) {
 }
 
 function projectChanges(input) {
-    requireFields(input, ['name', 'description', 'workFolder', 'origin'], 'project');
+    requireFields(input, ['name', 'description', 'workFolder', 'origin', 'faceRef'], 'project');
     const changes = {};
     for (const [field, value] of Object.entries(input)) {
         switch (field) {
             case 'name': changes.name = text(value, field, true); break;
             case 'description': changes.description = text(value, field); break;
-            case 'workFolder': changes.workFolder = optionalText(value, field); break;
+            case 'workFolder':
+            case 'faceRef': changes[field] = optionalText(value, field); break;
             case 'origin': changes.origin = originReference(value); break;
         }
     }
@@ -218,9 +219,10 @@ async function readRecord(recordType, id) {
     return readStoredRecord(await db.get(tables[recordType], key, true), recordType, id);
 }
 
-function publishChange(recordType, action, id, record) {
+function publishChange(recordType, action, id, record, changedFields = null) {
     events.dispatch(DATA_CHANGED_EVENT, {
-        recordType, action, id, record: record === null ? null : structuredClone(record)
+        recordType, action, id, record: record === null ? null : structuredClone(record),
+        changedFields: changedFields === null ? null : [...changedFields]
     });
 }
 
@@ -240,10 +242,16 @@ function updateRecord(recordType, id, changes, action = 'updated') {
         const selectedChanges = typeof changes === 'function'
             ? changes(structuredClone(record))
             : changes;
+        const contentFields = recordType === 'project'
+            ? ['name', 'description']
+            : ['title', 'assignment', 'projectId'];
+        const changedFields = Object.keys(selectedChanges).filter(function changedAuthoredField(field) {
+            return !contentFields.includes(field) || selectedChanges[field] !== record[field];
+        });
         Object.assign(record, selectedChanges, {updatedAt: new Date().toISOString()});
         const db = await getStorage();
         await db.set(tables[recordType], fileName(id), record);
-        publishChange(recordType, action, id, record);
+        publishChange(recordType, action, id, record, changedFields);
         return structuredClone(record);
     });
 }
@@ -322,7 +330,7 @@ export async function createProject(input) {
     const now = new Date().toISOString();
     const record = {
         id: crypto.randomUUID(), name: changes.name, description: '', workFolder: null,
-        origin: null, createdAt: now, updatedAt: now, archivedAt: null
+        origin: null, faceRef: null, createdAt: now, updatedAt: now, archivedAt: null
     };
     Object.assign(record, changes);
     return saveNew('project', record);
@@ -334,6 +342,10 @@ export function listProjects(options = {}) { return listRecords('project', optio
 export async function archiveProject(id) { return updateRecord('project', id, {archivedAt: new Date().toISOString()}, 'archived'); }
 export async function restoreProject(id) { return updateRecord('project', id, {archivedAt: null}, 'restored'); }
 export async function removeProjectRecord(id) { return removeRecord('project', id); }
+export async function setProjectFace(id, faceRef) { return updateProject(id, {faceRef}); }
+export async function setProjectFaceIfEmpty(id, faceRef, options = {}) {
+    return setRecordFaceIfEmpty('project', id, faceRef, options);
+}
 
 export async function createTask(input) {
     const changes = taskChanges(input);
@@ -370,40 +382,44 @@ export async function restoreTask(id) { return updateRecord('task', id, {archive
 export async function removeTaskRecord(id) { return removeRecord('task', id); }
 export async function setTaskFace(id, faceRef) { return updateTask(id, {faceRef}); }
 
-/** Attach a completed first-face candidate only while its task and request still match. */
-export async function setTaskFaceIfEmpty(id, faceRef, {isCurrent, signal} = {}) {
+export async function setTaskFaceIfEmpty(id, faceRef, options = {}) {
+    return setRecordFaceIfEmpty('task', id, faceRef, options);
+}
+
+/** Attach a completed first-face candidate only while its subject and request still match. */
+async function setRecordFaceIfEmpty(recordType, id, faceRef, {isCurrent, signal} = {}) {
     text(faceRef, 'faceRef', true);
     if (isCurrent !== undefined && typeof isCurrent !== 'function') {
-        throw dataError('PM_DATA_INPUT', 'isCurrent must be a synchronous task predicate.');
+        throw dataError('PM_DATA_INPUT', `isCurrent must be a synchronous ${recordType} predicate.`);
     }
     checkCancellation(signal);
-    return editRecord('task', id, async function associateFirstTaskFace() {
+    return editRecord(recordType, id, async function associateFirstRecordFace() {
         checkCancellation(signal);
         const db = await getStorage();
-        const record = readStoredRecord(await db.get(tables.task, fileName(id), true), 'task', id);
+        const record = readStoredRecord(await db.get(tables[recordType], fileName(id), true), recordType, id);
         checkCancellation(signal);
-        if (record === null) return {applied: false, reason: 'task-missing', task: null};
+        if (record === null) return {applied: false, reason: `${recordType}-missing`, [recordType]: null};
         if (record.faceRef !== null && record.faceRef !== undefined) {
-            return {applied: false, reason: 'face-present', task: record};
+            return {applied: false, reason: 'face-present', [recordType]: record};
         }
         if (isCurrent) {
             const current = isCurrent(structuredClone(record));
             if (current && typeof current.then === 'function') {
                 Promise.resolve(current).catch(function observeUnsupportedAsyncFacePredicate(error) {
-                    console.error('The asynchronous task-face predicate rejected after returning unsupported input.', error);
+                    console.error(`The asynchronous ${recordType}-face predicate rejected after returning unsupported input.`, error);
                 });
             }
             if (typeof current !== 'boolean') {
                 throw dataError('PM_DATA_INPUT', 'isCurrent must return a boolean synchronously.');
             }
-            if (!current) return {applied: false, reason: 'request-stale', task: record};
+            if (!current) return {applied: false, reason: 'request-stale', [recordType]: record};
         }
         checkCancellation(signal);
         record.faceRef = faceRef;
         record.updatedAt = new Date().toISOString();
-        await db.set(tables.task, fileName(id), record);
-        publishChange('task', 'updated', id, record);
-        return {applied: true, reason: 'assigned', task: structuredClone(record)};
+        await db.set(tables[recordType], fileName(id), record);
+        publishChange(recordType, 'updated', id, record, ['faceRef']);
+        return {applied: true, reason: 'assigned', [recordType]: structuredClone(record)};
     });
 }
 
@@ -534,7 +550,7 @@ export async function applyNativeTaskObservation(id, observation, {isCurrent, si
         record.nativeActivity = activity;
         record.updatedAt = new Date().toISOString();
         await db.set(tables.task, fileName(id), record);
-        publishChange('task', 'updated', id, record);
+        publishChange('task', 'updated', id, record, ['nativeActivity']);
         return {applied: true, reason: 'observed', task: structuredClone(record)};
     });
 }
@@ -548,7 +564,7 @@ export function subscribe(handler, options = {}) {
 
 export const pmData = {
     getStorage, createProject, getProject, updateProject, listProjects,
-    archiveProject, restoreProject, removeProjectRecord,
+    archiveProject, restoreProject, removeProjectRecord, setProjectFace, setProjectFaceIfEmpty,
     createTask, getTask, updateTask, listTasks, archiveTask, restoreTask,
     removeTaskRecord, setTaskFace, setTaskFaceIfEmpty,
     listNativeTaskAssociations, applyNativeTaskObservation, subscribe

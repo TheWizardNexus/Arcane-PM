@@ -33,7 +33,7 @@ Records returned to callers are independent copies of SDK cached records.
 
 | Operation | Signature |
 | --- | --- |
-| Create project | `createProject({name, description?, workFolder?, origin?})` |
+| Create project | `createProject({name, description?, workFolder?, origin?, faceRef?})` |
 | Read project | `getProject(id)` |
 | Update project | `updateProject(id, changes)` |
 | List projects | `listProjects({archived?, query?, signal?} = {})` |
@@ -45,8 +45,9 @@ Records returned to callers are independent copies of SDK cached records.
 | List tasks | `listTasks({projectId?, archived?, status?, query?, signal?} = {})` |
 | Archive / restore task | `archiveTask(id)` / `restoreTask(id)` |
 | Remove only selected task record | `removeTaskRecord(id)` |
-| Deliberately select a face | `setTaskFace(id, faceRef)` |
-| Attach an automatic first face conditionally | `setTaskFaceIfEmpty(id, faceRef, {isCurrent?, signal?} = {})` |
+| Deliberately select a project / task face | `setProjectFace(id, faceRef)` / `setTaskFace(id, faceRef)` |
+| Attach an automatic first project face conditionally | `setProjectFaceIfEmpty(id, faceRef, {isCurrent?, signal?} = {})` |
+| Attach an automatic first task face conditionally | `setTaskFaceIfEmpty(id, faceRef, {isCurrent?, signal?} = {})` |
 | Find explicit native task associations | `listNativeTaskAssociations({accountId?, hostId?, signal?} = {})` |
 | Apply one actual native observation | `applyNativeTaskObservation(id, bridgeThreadObservation, {isCurrent, signal?})` |
 | Observe committed changes | `subscribe(handler, {signal?} = {})` returning unsubscribe |
@@ -73,6 +74,8 @@ Project fields:
 - `description`: string, default `''`.
 - `workFolder`: selected system folder path string or `null`, default `null`.
 - `origin`: optional connection reference or `null`.
+- `faceRef`: stable face ID string or `null`, default `null` for new records.
+  Existing projects may omit it; no migration is performed.
 
 Task fields:
 
@@ -111,26 +114,31 @@ No content migration is performed on old data.
 
 ### Automatic first-face association
 
-`setTaskFaceIfEmpty` accepts a nonblank existing face reference and returns
-`{applied, reason, task}`. It uses the same task-record edit boundary as manual
-`setTaskFace`. A missing task returns `task-missing` with `task:null`; an existing
-face returns `face-present`; neither path writes, emits a change, or recreates a
-task. A successful association returns `applied:true`, `reason:'assigned'` and
-the saved task. All returned task records are independent copies.
+`setProjectFaceIfEmpty` and `setTaskFaceIfEmpty` accept a nonblank existing face
+reference and return `{applied, reason, project}` or `{applied, reason, task}`
+respectively. Each uses the same record edit boundary as its manual
+`setProjectFace` or `setTaskFace` counterpart. A missing subject returns
+`project-missing` with `project:null` or `task-missing` with `task:null`; an
+existing face returns `face-present`. These paths perform no write or event and
+never recreate a removed subject. A successful association returns
+`applied:true`, `reason:'assigned'` and the saved record. Returned records are
+independent copies. Manual selection accepts `null` to clear the association.
 
-The face owner may supply `isCurrent(currentTask)`, a synchronous boolean
-predicate evaluated against the latest detached task inside the edit boundary.
-Use it to match the still-active generation request and its exact task content.
+The face owner may supply `isCurrent(currentRecord)`, a synchronous boolean
+predicate evaluated against the latest detached project or task inside its edit
+boundary. Use it to match the still-active generation request and exact content.
 `false` returns `request-stale` without writing; a promise or nonboolean is an
 input error. This avoids using `updatedAt` as a generation identity, since
-unrelated observations can legitimately update a task. The face owner retains
+unrelated observations can legitimately update a task. Project predicates can
+match the request's project name and description without treating unrelated
+lifecycle changes as new content. The face owner retains
 generation, candidate assets and request cancellation; data owns only the
 conditional association. No account connection is inferred or changed.
 
 Cancellation is checked after the current record is read and immediately before
 the write. An OPFS write already accepted completes. A manual choice already
 saved prevents automatic assignment; a manual choice queued afterward replaces
-the automatic face through the same edit boundary. Other task fields, including
+the automatic face through the same edit boundary. Other record fields, including
 archive state, remain unchanged.
 
 ### Native activity on explicitly associated tasks
@@ -207,7 +215,7 @@ Other no-write reasons are `origin-mismatch`, `observation-stale`,
 `older-observation` and `unchanged`. Older actual timestamps cannot replace a
 newer saved observation for the same exact origin. An identical replay does not
 write or emit. Successful writes return `applied:true`, `reason:'observed'` and
-the saved task, then use the ordinary committed data event. A malformed
+the saved task after publishing the ordinary committed data event. A malformed
 observation or asynchronous/nonboolean predicate is `PM_DATA_INPUT`; storage
 failures propagate. The operation appends no raw event log or growing history.
 
@@ -245,7 +253,7 @@ aggregate error so incomplete coverage is never reported as a complete list.
 Cancellation uses `AbortError`; a write already accepted by OPFS completes.
 
 Committed changes publish canonical SDK event `arcane-pm.data.changed` from
-source `arcane-pm.data`, with `{recordType, action, id, record}`. `record` is
+source `arcane-pm.data`, with `{recordType, action, id, record, changedFields}`. `record` is
 `null` after removal. Actions are `created`, `updated`, `archived`, `restored`,
 and `removed`. `subscribe` forwards that detail to its handler; subscriber
 failures follow the SDK's observational error behavior. There is no second bus,
@@ -254,6 +262,21 @@ realm; explicit list/read calls refresh saved state across page reloads.
 Subscriptions have no replay: subscribe before loading initial records and
 refresh on subsequent change notifications. Mutations resolve only after the
 SDK write/delete succeeds and its committed change has been published.
+
+`changedFields` names the explicitly authored fields in an accepted update,
+including those returned by a synchronous task updater. Project `name` and
+`description`, and task `title`, `assignment` and `projectId`, are included only
+when their accepted scalar value differs from the latest stored value. This
+lets automatic preparation retain a settled result through an unchanged content
+save without retaining old content itself. Other explicitly supplied fields are
+included even when their value matches the previous value. The implicit
+`updatedAt` timestamp is excluded. Face association emits `['faceRef']`, native
+observation emits `['nativeActivity']`, and archive/restore emits `['archivedAt']`.
+Creation and removal use `null`; their action already describes the lifecycle.
+No-write conditional outcomes emit no event. This transient metadata lets
+consumers distinguish content edits from activity, face and lifecycle updates
+without retaining old input or model responses. It adds no stored field or
+record migration.
 
 Same-record read/modify/write operations use browser Web Locks where available,
 including across tabs. When Web Locks is unavailable, same-page edits serialize
