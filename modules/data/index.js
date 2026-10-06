@@ -192,6 +192,10 @@ function recordIncludesQuery(value, query) {
 /** A mutation serializes only the read/write pair for the same PM record. */
 function editRecord(recordType, id, operation) {
     const key = `arcane-pm:${tables[recordType]}:${fileName(id)}`;
+    return serializeDataEdit(key, operation);
+}
+
+function serializeDataEdit(key, operation) {
     if (globalThis.navigator?.locks?.request) {
         return navigator.locks.request(key, operation);
     }
@@ -327,13 +331,17 @@ async function listRecords(recordType, options) {
 export async function createProject(input) {
     const changes = projectChanges(input);
     text(changes.name, 'name', true);
+    return saveNew('project', newProjectRecord(changes));
+}
+
+function newProjectRecord(changes) {
     const now = new Date().toISOString();
     const record = {
         id: crypto.randomUUID(), name: changes.name, description: '', workFolder: null,
         origin: null, faceRef: null, createdAt: now, updatedAt: now, archivedAt: null
     };
     Object.assign(record, changes);
-    return saveNew('project', record);
+    return record;
 }
 
 export function getProject(id) { return readRecord('project', id); }
@@ -350,6 +358,10 @@ export async function setProjectFaceIfEmpty(id, faceRef, options = {}) {
 export async function createTask(input) {
     const changes = taskChanges(input);
     text(changes.title, 'title', true);
+    return saveNew('task', newTaskRecord(changes));
+}
+
+function newTaskRecord(changes) {
     const now = new Date().toISOString();
     const record = {
         id: crypto.randomUUID(), title: changes.title, projectId: null, assignment: '',
@@ -359,7 +371,7 @@ export async function createTask(input) {
         createdAt: now, updatedAt: now, archivedAt: null
     };
     Object.assign(record, changes);
-    return saveNew('task', record);
+    return record;
 }
 
 export function getTask(id) { return readRecord('task', id); }
@@ -427,6 +439,404 @@ function sameNativeOrigin(left, right) {
     return left?.provider === 'codex' && right?.provider === 'codex'
         && left.accountId === right.accountId && left.hostId === right.hostId
         && left.threadId === right.threadId;
+}
+
+function hasNativeText(value) {
+    return typeof value === 'string' && Boolean(value.trim());
+}
+
+/** Keep the two observed project catalogs separate until an explicit ID map joins them. */
+function discoveryProjectCatalog(catalog, hostId) {
+    const projects = new Map();
+    const legacyIds = new Map();
+    if (!catalog || catalog.hostId !== hostId) return {projects, legacyIds};
+    for (const project of catalog.native?.projects || []) {
+        const id = text(project.id, 'native project.id', true);
+        projects.set(`native:${id}`, {
+            provider: 'codex', hostId, kind: 'native', projectId: id,
+            name: text(project.name, 'native project.name'),
+            rootPaths: textList(project.roots.map(function nativeRoot(root) {
+                return root.path;
+            }), 'native project roots'),
+            source: 'codex-app-server', createdAt: project.createdAt, updatedAt: project.updatedAt,
+            nativeId: id, desktopProjects: []
+        });
+    }
+    const desktop = catalog.desktop;
+    for (const [legacyId, nativeId] of Object.entries(desktop?.nativeProjectIdsByLegacyId || {})) {
+        if (hasNativeText(nativeId)) legacyIds.set(legacyId, nativeId);
+    }
+    for (const project of Object.values(desktop?.localProjects || {})) {
+        const legacyId = text(project.id, 'desktop project.id', true);
+        const nativeId = legacyIds.get(legacyId);
+        const kind = nativeId ? 'native' : 'desktop-local';
+        const id = nativeId || legacyId;
+        const key = `${kind}:${id}`;
+        const desktopProject = {
+            id: legacyId, name: text(project.name, 'desktop project.name'),
+            rootPaths: textList(project.rootPaths, 'desktop project.rootPaths'),
+            createdAt: project.createdAt, updatedAt: project.updatedAt
+        };
+        if (projects.has(key)) {
+            projects.get(key).desktopProjects.push(desktopProject);
+            continue;
+        }
+        projects.set(key, {
+            provider: 'codex', hostId, kind, projectId: id,
+            name: text(project.name, 'desktop project.name'),
+            rootPaths: textList(project.rootPaths, 'desktop project.rootPaths'),
+            source: 'codex-desktop-state', createdAt: project.createdAt, updatedAt: project.updatedAt,
+            nativeId: nativeId || null, desktopProjects: [desktopProject]
+        });
+    }
+    return {projects, legacyIds};
+}
+
+/** Import only local PM metadata from a completed native read; never mutate native state. */
+export async function syncNativeDiscovery(discovery, {isCurrent, signal, onProgress, projectId} = {}) {
+    requireRecord(discovery, 'native discovery');
+    if (typeof isCurrent !== 'function') {
+        throw dataError('PM_DATA_INPUT', 'Native discovery requires its current connection predicate.');
+    }
+    if (onProgress !== undefined && typeof onProgress !== 'function') {
+        throw dataError('PM_DATA_INPUT', 'onProgress must be a function when supplied.');
+    }
+    const listing = structuredClone(Array.isArray(discovery.threads) || discovery.thread || discovery.status
+        ? discovery : discovery.threads);
+    requireRecord(listing, 'native thread discovery');
+    const selectedThread = Boolean(listing.thread);
+    if (projectId !== undefined) {
+        optionalText(projectId, 'projectId');
+        if (!selectedThread) throw dataError('PM_DATA_INPUT', 'A project override requires one explicitly selected thread.');
+    }
+    const rows = selectedThread ? [listing.thread] : listing.threads || [];
+    const catalog = discovery.projectCatalog ? structuredClone(discovery.projectCatalog) : null;
+    const coverage = {
+        threads: selectedThread ? {complete: listing.status === 'available', scope: 'selected-thread'}
+            : structuredClone(listing.coverage || {complete: false, scope: 'accessible-threads'}),
+        projects: structuredClone(catalog?.native?.coverage || {complete: false}),
+        assignments: structuredClone(catalog?.desktop?.coverage || {complete: false})
+    };
+    const result = {
+        status: 'partial', projects: [], tasks: [], associations: [],
+        createdProjectIds: [], createdTaskIds: [], unassociated: [], failures: [], coverage
+    };
+    let cancellation;
+    if (listing.status === 'unavailable') return {...result, status: 'unavailable', reason: listing.reason};
+    const identity = listing.identity?.originIdentity;
+    if (identity?.provider !== 'codex' || !hasNativeText(identity.accountId) || !hasNativeText(identity.hostId)) {
+        return {...result, status: 'unassociated', reason: 'native-identity-unavailable'};
+    }
+    if (catalog && catalog.hostId !== identity.hostId) {
+        return {...result, status: 'unassociated', reason: 'project-catalog-host-mismatch'};
+    }
+    function currentDiscovery() {
+        if (cancellation) throw cancellation;
+        checkCancellation(signal);
+        const current = isCurrent();
+        if (current && typeof current.then === 'function') {
+            Promise.resolve(current).catch(function observeUnsupportedDiscoveryPredicate(error) {
+                console.error('The asynchronous discovery predicate rejected after returning unsupported input.', error);
+            });
+        }
+        if (typeof current !== 'boolean') throw dataError('PM_DATA_INPUT', 'isCurrent must return a boolean synchronously.');
+        if (!current) result.reason = 'discovery-stale';
+        return current;
+    }
+    if (!currentDiscovery()) return result;
+    const savedCatalog = discoveryProjectCatalog(catalog, identity.hostId);
+    // This membership decision is shared by accounts on one host, after native I/O finishes.
+    return serializeDataEdit(`arcane-pm:discovery:${identity.hostId}`, async function importObservedWorkspace() {
+        if (!currentDiscovery()) return result;
+        const [projects, tasks, db] = await Promise.all([listProjects({signal}), listTasks({signal}), getStorage()]);
+        if (!currentDiscovery()) return result;
+        const projectsById = new Map();
+        const projectsByOrigin = new Map();
+        const tasksByThread = new Map();
+        const projectRequests = new Map();
+        const returnedProjects = new Map();
+        const catalogKeysById = new Map();
+        const conflictingProjects = new Map();
+        let completed = 0;
+        function indexCatalogId(id, key) {
+            const keys = catalogKeysById.get(id) || new Set();
+            keys.add(key);
+            catalogKeysById.set(id, keys);
+        }
+        for (const [key, saved] of savedCatalog.projects) {
+            indexCatalogId(saved.projectId, key);
+            for (const desktop of saved.desktopProjects) indexCatalogId(desktop.id, key);
+        }
+        function projectOriginKeys(project) {
+            const keys = new Set();
+            const saved = project.nativeProject;
+            if (saved?.provider === 'codex' && saved.hostId === identity.hostId) {
+                keys.add(`${saved.kind}:${saved.projectId}`);
+                if (saved.nativeId) keys.add(`native:${saved.nativeId}`);
+                const legacyProjects = saved.desktopProjects || [];
+                for (const legacy of legacyProjects) {
+                    keys.add(`desktop-local:${legacy.id}`);
+                    const nativeId = savedCatalog.legacyIds.get(legacy.id);
+                    if (nativeId && (!saved.nativeId || saved.nativeId === nativeId)) keys.add(`native:${nativeId}`);
+                }
+                if (saved.kind === 'desktop-local') {
+                    const nativeId = savedCatalog.legacyIds.get(saved.projectId);
+                    if (nativeId && (!saved.nativeId || saved.nativeId === nativeId)) keys.add(`native:${nativeId}`);
+                }
+            } else if (project.nativeFolder?.provider === 'codex' && project.nativeFolder.hostId === identity.hostId) {
+                keys.add(`folder:${project.nativeFolder.cwd}`);
+            } else if (project.origin?.provider === 'codex' && project.origin.hostId === identity.hostId
+                && hasNativeText(project.origin.projectId)) {
+                for (const key of catalogKeysById.get(project.origin.projectId) || []) keys.add(key);
+            }
+            return keys;
+        }
+        for (const project of projects) {
+            projectsById.set(project.id, project);
+            const saved = project.nativeProject;
+            if (saved?.hostId === identity.hostId && saved.nativeId) {
+                for (const desktop of saved.desktopProjects || []) {
+                    const mappedId = savedCatalog.legacyIds.get(desktop.id);
+                    if (mappedId && mappedId !== saved.nativeId) {
+                        const key = `native:${mappedId}`;
+                        const conflicts = conflictingProjects.get(key) || [];
+                        conflicts.push(project.id);
+                        conflictingProjects.set(key, conflicts);
+                    }
+                }
+            }
+            for (const key of projectOriginKeys(project)) {
+                const matches = projectsByOrigin.get(key) || [];
+                matches.push(project);
+                projectsByOrigin.set(key, matches);
+            }
+        }
+        for (const task of tasks) {
+            if (task.origin?.provider !== 'codex' || !hasNativeText(task.origin.threadId)) continue;
+            const matches = tasksByThread.get(task.origin.threadId) || [];
+            matches.push(task);
+            tasksByThread.set(task.origin.threadId, matches);
+        }
+        if (projectId !== undefined && projectId !== null && !projectsById.has(projectId)) {
+            throw dataError('PM_DATA_NOT_FOUND', `The selected project record ${projectId} is unavailable.`);
+        }
+        function includeProject(project) {
+            if (!project) return;
+            const index = returnedProjects.get(project.id);
+            if (index !== undefined) result.projects[index] = structuredClone(project);
+            else {
+                returnedProjects.set(project.id, result.projects.length);
+                result.projects.push(structuredClone(project));
+            }
+        }
+        async function saveDiscoveredRecord(recordType, record) {
+            if (!currentDiscovery()) return null;
+            await db.set(tables[recordType], fileName(record.id), record);
+            publishChange(recordType, 'created', record.id, record);
+            return record;
+        }
+        function projectFor(key, saved, cwd) {
+            if (projectRequests.has(key)) return projectRequests.get(key);
+            const request = resolveProject();
+            projectRequests.set(key, request);
+            return request;
+            async function resolveProject() {
+                if (conflictingProjects.has(key)) {
+                    return {reason: 'conflicting-project-mapping', projectIds: [...conflictingProjects.get(key)]};
+                }
+                const matches = projectsByOrigin.get(key) || [];
+                if (matches.length > 1) {
+                    return {reason: 'ambiguous-project-association', projectIds: matches.map(function projectIdentity(project) { return project.id; })};
+                }
+                if (matches.length === 1) {
+                    return editRecord('project', matches[0].id, async function reuseCurrentProject() {
+                        const project = await readRecord('project', matches[0].id);
+                        if (!currentDiscovery()) return {reason: 'discovery-stale'};
+                        const keys = project ? projectOriginKeys(project) : new Set();
+                        if (!keys.has(key)) return {reason: 'project-association-changed', projectIds: [matches[0].id]};
+                        if (!project.nativeProject && !project.nativeFolder && keys.size > 1) {
+                            return {reason: 'ambiguous-project-association', projectIds: [project.id]};
+                        }
+                        if (saved) {
+                            const previous = project.nativeProject;
+                            const desktopProjects = previous?.desktopProjects || [];
+                            const additions = saved.desktopProjects.filter(function newDesktopIdentity(candidate) {
+                                return !desktopProjects.some(function retainedDesktopIdentity(known) { return known.id === candidate.id; });
+                            });
+                            if (!previous || (!previous.nativeId && saved.nativeId) || additions.length) {
+                                project.nativeProject = previous ? {
+                                    ...previous, nativeId: previous.nativeId || saved.nativeId,
+                                    desktopProjects: [...desktopProjects, ...structuredClone(additions)]
+                                } : structuredClone(saved);
+                                project.updatedAt = new Date().toISOString();
+                                if (!currentDiscovery()) return {reason: 'discovery-stale'};
+                                await db.set(tables.project, fileName(project.id), project);
+                                publishChange('project', 'updated', project.id, project, ['nativeProject']);
+                            }
+                        }
+                        projectsById.set(project.id, project);
+                        includeProject(project);
+                        return {project};
+                    });
+                }
+                const separator = cwd && (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\\\')) ? /[\\/]/ : /\//;
+                const name = saved ? saved.name : cwd.split(separator).filter(Boolean).pop() || cwd;
+                const project = newProjectRecord({
+                    name: hasNativeText(name) ? name : saved.projectId,
+                    workFolder: saved ? saved.rootPaths.length === 1 ? saved.rootPaths[0] : null : cwd,
+                    origin: {provider: 'codex', accountId: null, projectId: saved?.projectId || null, threadId: null, hostId: identity.hostId, url: null}
+                });
+                if (saved) project.nativeProject = structuredClone(saved);
+                else project.nativeFolder = {provider: 'codex', hostId: identity.hostId, cwd};
+                if (!await saveDiscoveredRecord('project', project)) return {reason: 'discovery-stale'};
+                projectsById.set(project.id, project);
+                projectsByOrigin.set(key, [project]);
+                result.createdProjectIds.push(project.id);
+                includeProject(project);
+                return {project};
+            }
+        }
+        async function runItems(items, operation, stage) {
+            let position = 0;
+            async function nextDiscoveryItem() {
+                while (position < items.length && currentDiscovery()) {
+                    const item = items[position++];
+                    try {
+                        await operation(item);
+                    } catch (error) {
+                        if (error.name === 'AbortError') {
+                            cancellation = error;
+                            throw error;
+                        }
+                        result.failures.push({stage, id: item.id ?? item[0] ?? null, error});
+                    }
+                    if (!currentDiscovery()) return;
+                    completed++;
+                    if (onProgress) {
+                        try {
+                            const notice = onProgress({stage, completed, createdProjects: result.createdProjectIds.length, createdTasks: result.createdTaskIds.length});
+                            if (notice && typeof notice.then === 'function') {
+                                Promise.resolve(notice).catch(function observeProgressFailure(error) {
+                                    console.error('The native discovery progress observer rejected.', error);
+                                });
+                            }
+                        } catch (error) {
+                            console.error('The native discovery progress observer failed.', error);
+                        }
+                    }
+                }
+            }
+            const workers = [];
+            for (let index = 0; index < Math.min(4, items.length); index++) workers.push(nextDiscoveryItem());
+            const outcomes = await Promise.allSettled(workers);
+            for (const outcome of outcomes) {
+                if (outcome.status === 'rejected') {
+                    outcome.reason.discoveryResult = result;
+                    throw outcome.reason;
+                }
+            }
+        }
+        const projectWork = runItems([...savedCatalog.projects], async function importSavedProject([key, saved]) {
+            const outcome = await projectFor(key, saved);
+            if (outcome.reason) result.unassociated.push({nativeProjectId: saved.projectId, ...outcome});
+        }, 'projects');
+        const uniqueThreads = new Map();
+        for (const row of rows) {
+            try {
+                uniqueThreads.set(text(row.id, 'native thread.id', true), row);
+            } catch (error) {
+                result.failures.push({stage: 'threads', id: row?.id ?? null, error});
+            }
+        }
+        const taskWork = runItems([...uniqueThreads.values()], async function importNativeThread(thread) {
+            const origin = {provider: 'codex', accountId: identity.accountId, hostId: identity.hostId, threadId: thread.id};
+            const candidates = tasksByThread.get(thread.id) || [];
+            const matched = candidates.filter(function exactTask(task) { return sameNativeOrigin(task.origin, origin); });
+            if (matched.length) {
+                for (const candidate of matched) {
+                    await editRecord('task', candidate.id, async function reuseCurrentTask() {
+                        const task = await readRecord('task', candidate.id);
+                        if (!currentDiscovery()) return;
+                        if (!task || !sameNativeOrigin(task.origin, origin)) {
+                            result.unassociated.push({threadId: thread.id, reason: 'task-association-changed', taskIds: [candidate.id]});
+                            return;
+                        }
+                        result.tasks.push(structuredClone(task));
+                        result.associations.push({threadId: thread.id, taskId: task.id, projectId: task.projectId, created: false});
+                        includeProject(projectsById.get(task.projectId));
+                    });
+                }
+                return;
+            }
+            const incomplete = candidates.filter(function missingTaskIdentity(task) {
+                return (!hasNativeText(task.origin.accountId) || !hasNativeText(task.origin.hostId))
+                    && (!hasNativeText(task.origin.accountId) || task.origin.accountId === identity.accountId)
+                    && (!hasNativeText(task.origin.hostId) || task.origin.hostId === identity.hostId);
+            });
+            if (incomplete.length) {
+                result.unassociated.push({threadId: thread.id, reason: 'association-required', taskIds: incomplete.map(function taskIdentity(task) { return task.id; })});
+                return;
+            }
+            let selectedProjectId = projectId;
+            let nativeProjectId = hasNativeText(thread.projectId) ? thread.projectId : null;
+            if (selectedProjectId === undefined) {
+                let projectKey = nativeProjectId ? `native:${nativeProjectId}` : null;
+                const assignment = catalog?.desktop?.threadAssignments?.[thread.id];
+                if (!projectKey && assignment) {
+                    if (assignment.projectKind !== 'local' || !hasNativeText(assignment.projectId)) {
+                        result.unassociated.push({threadId: thread.id, reason: 'unsupported-project-assignment'});
+                        return;
+                    }
+                    nativeProjectId = savedCatalog.legacyIds.get(assignment.projectId) || assignment.projectId;
+                    projectKey = savedCatalog.legacyIds.has(assignment.projectId)
+                        ? `native:${nativeProjectId}` : `desktop-local:${nativeProjectId}`;
+                }
+                let outcome;
+                if (projectKey) {
+                    const saved = savedCatalog.projects.get(projectKey);
+                    if (!saved) {
+                        result.unassociated.push({threadId: thread.id, nativeProjectId, reason: 'assigned-project-unavailable'});
+                        return;
+                    }
+                    outcome = await projectFor(projectKey, saved);
+                } else if (catalog && catalog.desktop?.coverage?.complete !== true) {
+                    result.unassociated.push({threadId: thread.id, reason: 'project-assignments-unavailable'});
+                    return;
+                } else if (hasNativeText(thread.cwd)) {
+                    outcome = await projectFor(`folder:${thread.cwd}`, null, thread.cwd);
+                }
+                if (outcome?.reason) {
+                    result.unassociated.push({threadId: thread.id, ...outcome});
+                    return;
+                }
+                selectedProjectId = outcome?.project?.id || null;
+            }
+            const task = newTaskRecord({
+                title: hasNativeText(thread.name) ? thread.name : thread.id,
+                projectId: selectedProjectId,
+                workFolder: hasNativeText(thread.cwd) ? thread.cwd : null,
+                origin: {...origin, projectId: nativeProjectId, url: `codex://threads/${encodeURIComponent(thread.id)}`},
+                status: 'unknown'
+            });
+            if (!selectedThread && listing.coverage?.archived === true) task.archivedAt = task.createdAt;
+            if (!await saveDiscoveredRecord('task', task)) return;
+            tasksByThread.set(thread.id, [task]);
+            result.createdTaskIds.push(task.id);
+            result.tasks.push(structuredClone(task));
+            result.associations.push({threadId: thread.id, taskId: task.id, projectId: task.projectId, created: true});
+            includeProject(projectsById.get(task.projectId));
+        }, 'threads');
+        const batches = await Promise.allSettled([projectWork, taskWork]);
+        for (const batch of batches) {
+            if (batch.status === 'rejected') throw batch.reason;
+        }
+        if (currentDiscovery() && !result.failures.length && !result.unassociated.length
+            && coverage.threads.complete && (!catalog || catalog.coverage?.complete === true)) result.status = 'complete';
+        return result;
+    }).catch(function retainPartialDiscovery(error) {
+        error.discoveryResult = result;
+        throw error;
+    });
 }
 
 function nativeActivityOrigin(value) {
@@ -567,7 +977,7 @@ export const pmData = {
     archiveProject, restoreProject, removeProjectRecord, setProjectFace, setProjectFaceIfEmpty,
     createTask, getTask, updateTask, listTasks, archiveTask, restoreTask,
     removeTaskRecord, setTaskFace, setTaskFaceIfEmpty,
-    listNativeTaskAssociations, applyNativeTaskObservation, subscribe
+    listNativeTaskAssociations, applyNativeTaskObservation, syncNativeDiscovery, subscribe
 };
 
 export default pmData;

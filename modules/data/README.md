@@ -50,6 +50,7 @@ Records returned to callers are independent copies of SDK cached records.
 | Attach an automatic first task face conditionally | `setTaskFaceIfEmpty(id, faceRef, {isCurrent?, signal?} = {})` |
 | Find explicit native task associations | `listNativeTaskAssociations({accountId?, hostId?, signal?} = {})` |
 | Apply one actual native observation | `applyNativeTaskObservation(id, bridgeThreadObservation, {isCurrent, signal?})` |
+| Map a deliberate native discovery into PM records | `syncNativeDiscovery(discovery, {isCurrent, signal?, onProgress?, projectId?})` |
 | Observe committed changes | `subscribe(handler, {signal?} = {})` returning unsubscribe |
 
 Lists include archived records by default, preserve complete records, and sort
@@ -76,6 +77,20 @@ Project fields:
 - `origin`: optional connection reference or `null`.
 - `faceRef`: stable face ID string or `null`, default `null` for new records.
   Existing projects may omit it; no migration is performed.
+- `nativeProject`: discovery-owned saved-project snapshot, when discovered from
+  a saved native project. It contains `{provider:'codex', hostId, kind,
+  projectId, name, rootPaths, source, createdAt, updatedAt, nativeId,
+  desktopProjects}`. `kind` distinguishes
+  `native` IDs from `desktop-local` IDs; `source` identifies `codex-app-server`
+  or `codex-desktop-state`. Native timestamps retain their original values and
+  units, separately from PM lifecycle timestamps. All roots and the saved name
+  remain separate from editable PM `name` and `workFolder`.
+  `nativeId` retains an explicitly mapped public ID or null;
+  `desktopProjects` retains each explicitly joined desktop project's exact
+  `{id, name, rootPaths, createdAt, updatedAt}` snapshot.
+- `nativeFolder`: discovery-owned `{provider:'codex', hostId, cwd}` only for a
+  project created from a genuinely unassigned thread's complete working path.
+  Neither discovery identity field is accepted by ordinary project updates.
 
 Task fields:
 
@@ -228,6 +243,102 @@ for separate tasks can proceed independently, while only same-record writes
 serialize. No model request, native mutation, polling, dependency change,
 local test or build is selected by these APIs.
 
+### Deliberate native discovery
+
+`syncNativeDiscovery` accepts the bridge's unchanged `discoverWorkspace` result:
+`{threads, projectCatalog}`. `threads` is its full `listThreads` or selected
+`readThread` result, including actual connection identity. The catalog keeps
+the complete native project records/pages and narrowly selected desktop
+metadata in their original separate containers. Data reads public project
+IDs, names and root paths; the desktop `nativeProjectIdsByLegacyId` map joins
+legacy saved assignments only through an explicitly recorded ID mapping.
+It never copies the catalog, thread response, protocol or conversation body
+into a PM record. The older standalone list/read result is also accepted when
+no project catalog is supplied.
+
+Saved project identity is provider, actual host and saved project ID, independent
+of account selection. Native and desktop-only IDs remain distinct until the
+explicit map joins them. Roots are never used to merge saved projects. New
+project names use the complete observed saved name; a blank name uses its ID.
+A single root supplies the initial `workFolder`; multiple roots leave that
+single selection null while retaining every root in `nativeProject.rootPaths`.
+An existing PM project keeps its ID, manual name, folder, face and lifecycle.
+The catalog snapshot is retained at creation. Discovery may attach the narrow
+`nativeProject` identity to an existing exact ordinary origin match, or retain
+an additional explicitly mapped native/desktop ID under that project's record
+lock. This updates only `nativeProject` and `updatedAt`, emitting
+`changedFields:['nativeProject']`. Ambiguous identity matches are reported;
+editable fields and existing histories remain intact. Retaining both source
+identities prevents a later incomplete migration map from duplicating a project.
+A later map that contradicts a retained native identity is reported as
+`conflicting-project-mapping`; it does not merge two saved native projects.
+
+For each new thread, its actual native `projectId` takes precedence, followed
+by its explicit saved desktop assignment and exact legacy-to-native ID map.
+An explicit assignment whose project is unavailable is reported unresolved;
+that task is deferred for a later discovery. An incomplete assignment catalog
+cannot establish that an absent assignment is genuinely unassigned. Once
+unassigned status is established, the actual host and complete `cwd` select a
+folder project, whose initial label is its final path component. Paths remain
+unchanged; matching basenames, case folding, separators or overlapping roots
+never merge projects. A genuinely unassigned thread without a working folder
+becomes a task with `projectId:null`.
+
+Task identity is exact provider, account, host and native thread ID. Repeating
+a discovery reuses matching PM records and preserves every existing field,
+including a manually cleared project association, assignment, labels, status,
+observations, face and archive state. Multiple deliberately associated PM
+tasks remain separate. An existing incomplete origin that matches the known
+identity is reported as `association-required`; the bridge's deliberate
+association action supplies missing identity. Discovery does not guess it or
+create a duplicate around it. A saved-project discovery does not merge an
+older folder project or move its existing tasks.
+
+New tasks use the complete native name (or native ID if unnamed), exact cwd,
+origin and original conversation link. Assignment is empty, status is
+`unknown`, and observed activity is unset. Conversation content is imported
+through the sources owner. An explicitly archived thread listing initializes
+only newly created tasks as PM-archived; a selected read has no inferred
+archive state. A project never derives archive state from a thread.
+`projectId` overrides grouping only for a new, explicitly selected single
+thread read, including explicit null; it never moves an existing PM task.
+
+The result contains `{status, reason?, projects, tasks, associations,
+createdProjectIds, createdTaskIds, unassociated, failures, coverage}`.
+Associations contain `{threadId, taskId, projectId, created}`. `coverage`
+separately retains thread, public-project and desktop-assignment coverage.
+`complete` requires current identity, complete supplied coverage and no
+unresolved associations or failures. `partial` retains all accepted records
+and actual failures. `unavailable` retains the bridge's reason; top-level
+`unassociated` identifies missing native identity or a catalog host mismatch
+and performs no writes. Unresolved rows identify their native thread/project
+and, when relevant, candidate PM IDs. An unreadable PM inventory rejects before
+creation because existing identity coverage is unknown.
+
+The required synchronous boolean `isCurrent()` checks the composing owner's
+exact connection/account lifetime before work and each durable write. A retired
+lifetime stops further creation with `reason:'discovery-stale'`. Cancellation
+uses `AbortError`; worker cancellation exposes accepted results on
+`error.discoveryResult`. An already accepted SDK write completes and publishes
+the ordinary created event. A successful project write remains if its task
+write fails, so the next deliberate discovery reuses that project. Missing
+native rows never delete or archive local records.
+
+Discovery enumerates each PM table once and indexes identities for the batch.
+One host-scoped Web Lock serializes its membership lookup/create sequence across
+account selections and tabs; native enumeration occurs before this boundary.
+Independent record edits and discoveries on other hosts remain concurrent.
+Without Web Locks, the pending-operation map coordinates only this page.
+Discovery does not impose uniqueness on separate deliberate manual creates or
+re-associations. Project requests within a discovery share the same in-flight
+creation. Four project and four task workers run concurrently, with each task
+awaiting only its selected project. Existing candidates are read again under
+their record locks; deletion or reassociation observed then is reported for
+this invocation without recreation. `onProgress` observes completed item and
+created record counts without changing stored content or delaying workers.
+The composing owner acknowledges immediately and owns trigger/cancellation;
+this module adds no polling, automatic reload import or deletion subscription.
+
 ## Archive and removal
 
 Archive updates `archivedAt` only (plus `updatedAt`). It preserves status,
@@ -240,6 +351,9 @@ Removal takes exactly one selected PM ID and returns
 copies, handoffs, face/model assets, native conversations and working files
 remain with their owners. A task may retain the ID of a removed project; a
 caller displays its missing association and may explicitly reassign it.
+A later deliberate Connect, Find or refresh can recreate an absent local row
+from still-existing native metadata, with a new PM ID. Removal itself never
+starts discovery and retains no suppression or tombstone record.
 
 ## Errors and events
 
