@@ -577,7 +577,7 @@ export function createPMModelServices(
     }
 
     async function prepareImageAssets(
-        {source, members, workingDirectory, signal: requestSignal, onProgress} = {}
+        {source, members, workingDirectory, offline = true, signal: requestSignal, onProgress} = {}
     ) {
         assertOpen();
         const selectedClient = requireCore();
@@ -588,7 +588,7 @@ export function createPMModelServices(
             const modelSource = createBrowserModelSource(source);
             const stored = await store.ensure(
                 modelSource,
-                {signal: currentSignal, offline: true, onProgress}
+                {signal: currentSignal, offline, onProgress}
             );
             completeMembers = modelSource.files.map(
                 function completeStoredMember(member, index) {

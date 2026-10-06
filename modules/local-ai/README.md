@@ -1,6 +1,6 @@
-# Arcane PM preparation and task faces
+# Arcane PM preparation and avatars
 
-PM owns preparation purpose, domain records and deliberate task-face selection.
+PM owns preparation purpose, domain records and task/project avatar selection.
 The published Arcane SDK owns inference, provider requests, model lifecycle,
 downloads, storage mechanisms and temporary native working projections.
 
@@ -12,7 +12,7 @@ Import from `modules/local-ai/index.js`:
 const services = createPMPreparationServices(
     {getStorage, pmData, signal}
 );
-const {modelServices, localAI, faces} = services;
+const {modelServices, localAI, faces, initialAvatars} = services;
 const view = mountLocalAIView(
     container,
     {modelServices, localAI, faces, pmData, projectId, signal}
@@ -23,16 +23,16 @@ const view = mountLocalAIView(
 that same ready DBOPFS connection. Construct services once. A view owns its
 request signals and subscriptions. Application disposal joins preparation/face
 cleanup before closing SDK accessors owned by this composition. The lower-level
-exports are `createPMModelServices` and `createLocalPreparationController`.
+exports include `createPMModelServices`, `createLocalPreparationController`,
+`createPreparationRequestSlot` and `createInitialAvatarPreparation`.
 
-`modules/local-ai/core-service.mjs` is the native service factory for observing
-an existing local provider through the published `createLocalAIService` owner.
-Its selected descriptor options are `{runtimes: ['ollama']}`. The SDK uses its
-documented default Ollama address and reports the actual catalog and residency.
-This factory supplies no installer, preparation callback or runtime executable;
-an absent daemon therefore stays unavailable. It neither acquires models nor
-starts a replacement process. Foundation owns descriptor composition and the
-shared development server lifecycle.
+The authored descriptor selects Ollama and `stable-diffusion.cpp` under
+`native.localAI`. The latter uses the published `master-929-3f8527a`, `auto`
+backend and `sd14` model descriptor. The SDK's normal development composition
+owns the local service, image service, model projection service and asynchronous
+runtime preparation. Foundation owns descriptor composition and the shared
+development server lifecycle. The former PM service wrapper is superseded by
+that public SDK composition; registering both would duplicate `local-ai`.
 
 An externally owned daemon can report `installed: false` and `available: true`
 because PM supplied no executable. Readiness follows the actual provider state,
@@ -43,13 +43,17 @@ an explicit reconnection attempt; reading status alone does not restart it.
 ## Preparation
 
 `createLocalPreparationController({modelServices, getStorage, tools = [],
-executeTool, signal})` returns one PM preparation controller.
+executeTool, acquireRequest, requestPriority = 'user', signal})` returns one PM
+preparation controller.
 
 - `prepare({taskId, messages, persist = false, userTurn, onChunk, onToolResult,
-  onDiagnostic, signal})` passes complete authored messages to the SDK.
+  onDiagnostic, expectedSelection, signal})` passes complete authored messages to the SDK.
   It synchronously publishes `Thinking`, observes the exact selected provider
   and model's ready/loaded state, and returns `{content, response, toolResults,
   savedId}`. Another preparation supersedes its current request.
+  Internal callers may supply `expectedSelection: {providerId, modelId, localOnly}`
+  to bind the intended model at synchronous acceptance; a later change cancels
+  the request before another route can consume it.
 - `onChunk(text)` receives real visible fragments in order. No empty assistant
   turn or fabricated text appears while waiting.
 - `current()` returns operation metadata and concise status, with no retained
@@ -95,6 +99,55 @@ storage owner may finish after cancellation; cancellation does not roll it back.
 Actual tool settlements likewise remain available to the operation's diagnostic
 callback even when cancelled conversation continuation is suppressed.
 
+Composition supplies one `createPreparationRequestSlot({signal})` owner to
+manual preparation and background avatar prompt preparation. Its
+`acquire({signal, priority = 'user'})` resolves an idempotent release function.
+The SDK's current text request owner accepts one active request, so waiting
+requests share that exact contention boundary. User work goes ahead of queued
+background work; each priority retains arrival order. Active work finishes or
+cancels through its normal SDK lifecycle. A queued cancellation removes only
+that request. Release follows SDK request and actual tool settlement, before
+unrelated persistence; it does not assert native inference has physically ended.
+`dispose()` rejects queued work while the active owner retains responsibility
+for releasing its slot. Cards and model loading continue independently.
+
+## First avatars from work content
+
+`services.initialAvatars` prepares first avatars for both tasks and projects:
+
+- `ensureTask(taskId, {signal, retry = false})` and
+  `ensureProject(projectId, {signal, retry = false})` resolve the final transient
+  status. They synchronously publish pending state and proceed in the background.
+- `current()` and replaying `subscribe(listener, {signal})` expose
+  `{statuses: [{subjectType, subjectId, status, message, faceId}], closed}`.
+- `cancelTask(id)` and `cancelProject(id)` cancel only the named subject.
+  `dispose()` joins its owned operations and clears transient state.
+
+Existing saved faces are reused. A new request waits for the selected local-only
+text model and selected image model to be both ready and loaded, without choosing,
+loading or downloading either model. The complete original task title,
+assignment and project description, or project name and description, reach the
+text owner in separate messages. App-owned system instructions ask for a concrete
+symbol representing that work, using the approved warm adult editorial style:
+soft rounded forms, deep teal, warm ivory, muted gold and restrained lavender.
+The complete actual response becomes the image prompt through the published
+image owner. No authored source is rewritten or wrapped into that prompt.
+
+The text stage uses `persist: false`, no tools and background request priority.
+Its temporary inputs and generated description are released after the operation;
+they are not saved in face metadata, history or later model context. The image,
+its subject association and ordinary generation metadata are the durable output.
+Initial-avatar status retains no prompt or model response.
+
+Data-owner `changedFields` events identify actual differences in source fields
+so status and account observations do not restart failed or cancelled work.
+Explicit `retry: true` or a genuine source change permits another attempt while
+the subject remains faceless. Model replacement, loss of readiness, source
+changes and deletion cancel stale operations. A saved face always wins over
+late automatic work through the data owner's conditional association methods.
+The image runtime owns contention within its native context; PM adds no image
+queue or readiness polling.
+
 ## Models
 
 `createPMModelServices({getStorage, signal, client})` returns synchronously:
@@ -111,9 +164,12 @@ callback even when cancelled conversation continuation is suppressed.
 - `getImageRuntime()` returns the SDK accessor, including an honest unavailable
   state in a browser without Core. `getONNXRuntime()` exposes the SDK's tensor
   accessor, not a PM text pipeline.
-- `prepareImageAssets({source,members,workingDirectory,signal,onProgress})`
+- `prepareImageAssets({source,members,workingDirectory,offline = true,signal,onProgress})`
   prepares SDK-owned temporary native projections from complete cached assets
-  or supplied complete Blob members. The caller releases its returned
+  or supplied complete Blob members. An explicit `offline: false` permits the
+  SDK model store to acquire a selected missing resource into the shared DBOPFS
+  cache. The image model Load action uses that path for configured SDK resources.
+  The caller releases its returned
   projection after the native owner takes its retain during load.
 - `dispose()` joins owned cleanup and releases SDK accessors/projections.
 
@@ -124,9 +180,10 @@ Image original selection is independent of this model-source contract.
 
 The published `0.65.0` image and ONNX accessors retain the Core client supplied
 at construction. Their attachment after a later Core installation or replacement
-remains an SDK-owner follow-through item. The current descriptor selects no image
-runtime, so image generation remains unavailable; imported originals and
-deliberate face selection continue through their existing storage owner.
+remains an SDK-owner follow-through item. Runtime installation, checkpoint
+preparation, native loading and actual generation remain separate observed
+states. Imported originals and deliberate face selection continue through their
+existing storage owner.
 
 ## Faces
 
@@ -189,7 +246,10 @@ Image execution uses `arcane-os/ai/core-image`; native working members use
 `arcane-os/ai/core-model-assets`. SDK `createDbopfsModelStore` receives the
 existing DBOPFS connection. Installation, stored assets, projections, loading
 and inference remain separate operations. Optional native dependencies and
-model downloads were not selected or executed during this task.
+model downloads were unselected during the earlier capability review. The
+subsequent avatar setup selects the SDK-owned Stable Diffusion runtime and
+`sd14` checkpoint through those same public owners; actual execution evidence
+is reported separately.
 
 Ordinary task browsing, local text search and manual preparation remain usable
 without Core or loaded models. Source integration is distinct from actual
@@ -281,11 +341,12 @@ and [remote System One](https://cdn.jsdelivr.net/npm/arcane-os@0.64.0/docs/refer
 
 ## Ownership and work cardinality
 
-One controller owns one active preparation request; independent task
-controllers may proceed concurrently. Each face operation retains every actual
-returned candidate. SDK context operations and per-task association writes
-serialize only at their actual owners. Model assets reuse the SDK store;
-selected model changes invalidate readiness.
+One controller owns one active preparation request. Independent task and project
+work proceeds concurrently until it reaches the SDK's single text-request slot
+or native image context. Each face operation retains every actual returned
+image candidate. SDK context operations and per-subject association writes
+serialize at their owners. Model assets reuse the SDK store; selected model
+changes invalidate readiness.
 
 PM source stays in `modules/local-ai/` and `modules/faces/`. It creates no engine,
 downloader, model-store implementation, exporter, provider adapter, native
@@ -303,3 +364,13 @@ candidate, and saved that image only after deliberate choice. After page
 reload, the saved image and complete note were read back through the interface.
 The All projects task filter was corrected during this review. No native model,
 model download, remote inference, local test suite or validation build ran.
+
+After the published `0.65.0` existing-Ollama service composition, a fresh browser
+opened the local-AI view and explicitly refreshed its catalog. The actual public
+`Arcane.localAI.status()` response reported the configured Ollama endpoint ready
+at `http://127.0.0.1:11434`, with `available: true`, `installed: false`,
+`owned: false` and an empty model catalog. `Arcane.ollama.running()` returned
+`{models: []}`. This establishes that endpoint's current catalog and residency;
+it does not describe models elsewhere on the computer. The image service was
+unconfigured and reported no `image.status` method. No model was selected,
+loaded or executed during that browser read, and the owned browser tab was closed.

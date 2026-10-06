@@ -106,7 +106,7 @@ export function mountLocalAIView(container, {
                         <label class="arcane-field"><span class="arcane-field__label">Image model</span>
                             <select data-control="image-model"><option value="">No image models available</option></select></label>
                         <div class="pm-actions">
-                            <button type="button" class="arcane-button arcane-button--secondary" data-control="load-image">Load stored image model</button>
+                            <button type="button" class="arcane-button arcane-button--secondary" data-control="load-image">Load image model</button>
                             <button type="button" class="arcane-button arcane-button--secondary" data-control="unload-image">Unload image model</button>
                         </div>
                     </div>
@@ -252,7 +252,7 @@ export function mountLocalAIView(container, {
                 ? `${snapshot.selectedModel} · Ready and loaded`
                 : snapshot.selectedModel
                     ? `${snapshot.selectedModel} · ${snapshot.state}`
-                    : 'Load a stored image model to generate or edit. You can import an image now.';
+                    : 'Load an image model to generate or edit. Its download is stored in this app for reuse.';
         status(controls['image-model-status'], message, snapshot.error ? 'error' : 'idle');
         updateControls();
     }
@@ -577,7 +577,7 @@ export function mountLocalAIView(container, {
         });
         if (!model || imageBusy) return;
         imageBusy = true;
-        status(controls['image-model-status'], 'Loading stored image model…', 'working');
+        status(controls['image-model-status'], 'Preparing the selected image model…', 'working');
         updateControls();
         let projection = null;
         try {
@@ -588,17 +588,20 @@ export function mountLocalAIView(container, {
                 const source = {id: model.id, files: resources.map(function imageResourceFile(entry) {
                     return {name: entry[1].filename, url: entry[1].url};
                 })};
-                projection = await modelServices.prepareImageAssets({source, workingDirectory: '.arcane/model-working', signal: pageSignal});
+                projection = await modelServices.prepareImageAssets(
+                    {source, workingDirectory: '.arcane/model-working', offline: false, signal: pageSignal}
+                );
                 const resourcePaths = Object.fromEntries(resources.map(function resourceRole(entry) {
                     return [entry[0], entry[1].filename];
                 }));
+                status(controls['image-model-status'], 'Loading the selected image model…', 'working');
                 await imageRuntime.load({model: model.id, assetProjectionId: projection.id, resourcePaths, signal: pageSignal});
             } else {
                 await imageRuntime.load({model: model.id, signal: pageSignal});
             }
             if (!pageSignal.aborted) renderImageModels(imageRuntime.current());
         } catch (error) {
-            reportFailure(controls['image-model-status'], 'The image model could not be loaded from local storage. Select an available stored model or import a face image.', error);
+            reportFailure(controls['image-model-status'], 'The image model could not be prepared or loaded. Review the connection and selected model, then try again.', error);
         } finally {
             if (projection) {
                 try { await projection.release(); }

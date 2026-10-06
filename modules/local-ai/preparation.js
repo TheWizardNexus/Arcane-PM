@@ -2,7 +2,8 @@ import {createArcaneEventSource} from 'arcane-os/event-manager';
 
 /** One PM preparation turn. Provider and model mechanics stay with the SDK. */
 export function createLocalPreparationController(
-    {modelServices, getStorage, tools = [], executeTool, signal} = {}
+    {modelServices, getStorage, tools = [], executeTool, acquireRequest,
+        requestPriority = 'user', signal} = {}
 ) {
     if (tools.length && typeof executeTool !== 'function') {
         throw new TypeError('Configured preparation tools require their owning executor.');
@@ -77,7 +78,7 @@ export function createLocalPreparationController(
 
     function prepare(
         {taskId = null, messages, persist = false, userTurn, onChunk, onToolResult,
-            onDiagnostic, signal: requestSignal} = {}
+            onDiagnostic, expectedSelection, signal: requestSignal} = {}
     ) {
         if (closed) throw new Error('The preparation controller is closed.');
         if (!Array.isArray(messages)) throw new TypeError('Preparation requires authored messages.');
@@ -93,7 +94,11 @@ export function createLocalPreparationController(
             task: null,
             stopModel: null,
             stopWaitAbort: null,
-            selection: null,
+            selection: expectedSelection ? {
+                providerId: expectedSelection.providerId,
+                modelId: expectedSelection.modelId,
+                localOnly: expectedSelection.localOnly === true
+            } : null,
             dispatched: false
         };
         active = request;
@@ -123,6 +128,7 @@ export function createLocalPreparationController(
         async function executePreparation(operation) {
             let content = '';
             let response;
+            let requestWasCancelled;
             const toolTasks = [];
             const toolResults = [];
             const startedAt = new Date().toISOString();
@@ -131,25 +137,38 @@ export function createLocalPreparationController(
                 assertCurrent(operation);
                 await waitForSelectedModel(operation);
                 assertCurrent(operation);
-                operation.dispatched = true;
-                const ai = modelServices.getAI();
-                const result = await ai.streamRequest(
-                    {
-                        messages,
-                        tools,
-                        toolChoice: 'auto',
-                        localOnly: operation.selection.localOnly === true,
-                        signal: operation.signal,
-                        id: operation.id,
-                        seeThinking: false,
-                        onChunk: receiveText,
-                        onResponse: receiveResponse,
-                        onRequest: inspectRequest,
-                        onToolCall: receiveToolCall
-                    }
-                );
-                assertCurrent(operation);
-                await Promise.allSettled(toolTasks);
+                const releaseRequest = acquireRequest ? await acquireRequest(
+                    {signal: operation.signal, priority: requestPriority}
+                ) : null;
+                let result;
+                try {
+                    assertCurrent(operation);
+                    operation.dispatched = true;
+                    const ai = modelServices.getAI();
+                    result = await ai.streamRequest(
+                        {
+                            messages,
+                            tools,
+                            toolChoice: 'auto',
+                            localOnly: operation.selection.localOnly === true,
+                            signal: operation.signal,
+                            id: operation.id,
+                            seeThinking: false,
+                            onChunk: receiveText,
+                            onResponse: receiveResponse,
+                            onRequest: inspectRequest,
+                            onToolCall: receiveToolCall
+                        }
+                    );
+                    assertCurrent(operation);
+                } catch (error) {
+                    requestWasCancelled = operation.signal.aborted;
+                    operation.controller.abort(error);
+                    throw error;
+                } finally {
+                    await Promise.allSettled(toolTasks);
+                    releaseRequest?.();
+                }
                 assertCurrent(operation);
 
                 // Some providers return one final visible text without chunks.
@@ -211,9 +230,8 @@ export function createLocalPreparationController(
                 assertCurrent(operation);
                 return {content, response, toolResults, savedId};
             } catch (error) {
-                const wasCancelled = operation.signal.aborted;
+                const wasCancelled = requestWasCancelled ?? operation.signal.aborted;
                 operation.controller.abort(error);
-                await Promise.allSettled(toolTasks);
                 if (active === operation && !closed) {
                     publish(
                         {
@@ -324,7 +342,8 @@ export function createLocalPreparationController(
                         };
                     }
                     const matches = model.providerId === request.selection.providerId
-                        && model.modelId === request.selection.modelId;
+                        && model.modelId === request.selection.modelId
+                        && (model.localOnly === true) === (request.selection.localOnly === true);
                     const ready = matches && model.state === 'ready' && model.loaded === true;
                     if (!matches || (started && !ready)) {
                         request.controller.abort();

@@ -21,6 +21,8 @@ export function createTaskFaceController(
     const candidates = new Map();
     const pending = new Set();
     const choices = new Map();
+    const initialRequests = new Map();
+    const initialStates = new Map();
     let modelState = imageRuntime?.current() ?? {
         state: 'unavailable', selectedModel: null, loaded: false, available: false
     };
@@ -32,12 +34,23 @@ export function createTaskFaceController(
     let progress = null;
 
     function current() {
+        const choosingTaskIds = [];
+        const choosingProjectIds = [];
+        for (const choice of choices.values()) {
+            if (choice.candidate.subjectType === 'project') {
+                choosingProjectIds.push(choice.candidate.projectId);
+            } else {
+                choosingTaskIds.push(choice.candidate.taskId);
+            }
+        }
         return {
             status,
             message,
             progress,
             operation: active?.operation ?? null,
             taskId: active?.taskId ?? null,
+            subjectType: active ? 'task' : null,
+            subjectId: active?.taskId ?? null,
             model: {
                 id: modelState.id ?? null,
                 selectedModel: modelState.selectedModel ?? null,
@@ -49,8 +62,13 @@ export function createTaskFaceController(
                 candidates.values(),
                 publicCandidate
             ),
-            choosingTaskIds: Array.from(
-                choices.keys()
+            choosingTaskIds,
+            choosingProjectIds,
+            initialFaces: Array.from(
+                initialStates.values(),
+                function initialFaceState(value) {
+                    return {...value};
+                }
             ),
             disposed
         };
@@ -60,10 +78,14 @@ export function createTaskFaceController(
         return {
             id: candidate.id,
             taskId: candidate.taskId,
+            subjectType: candidate.subjectType ?? 'task',
+            subjectId: candidate.subjectId ?? candidate.taskId,
             operation: candidate.operation,
             model: candidate.model,
             prompt: candidate.prompt,
             parameters: candidate.parameters,
+            source: candidate.source ?? null,
+            projectId: candidate.projectId ?? null,
             strength: candidate.strength,
             blob: candidate.image.blob,
             mediaType: candidate.image.mediaType,
@@ -101,20 +123,24 @@ export function createTaskFaceController(
 
     function checkRequest(request) {
         request.signal.throwIfAborted();
-        if (disposed || active !== request) throw abortReason('The face request was superseded.');
+        const selected = request.operation === 'initial'
+            ? initialRequests.get(request.key) : active;
+        if (disposed || selected !== request) throw abortReason('The face request was superseded.');
     }
 
     function observeModel(snapshot) {
         modelState = snapshot;
-        const request = active;
-        if (request) {
+        const requests = Array.from(initialRequests.values());
+        if (active) requests.push(active);
+        for (const request of requests) {
             if (snapshot.selectedModel && snapshot.selectedModel !== request.modelId) {
                 request.controller.abort(
                     abortReason('The selected image model changed.')
                 );
             } else if (
                 request.ready && (
-                    !snapshot.loaded
+                    snapshot.selectedModel !== request.modelId
+                    || !snapshot.loaded
                     || ['unloading', 'unloaded', 'closing', 'closed', 'cancelling', 'error', 'unavailable'].includes(snapshot.state)
                 )
             ) {
@@ -265,19 +291,7 @@ export function createTaskFaceController(
             checkRequest(request);
             const created = result.images.map(
                 function faceCandidate(image) {
-                    return {
-                        id: globalThis.crypto.randomUUID(),
-                        taskId: input.taskId,
-                        operation: request.operation,
-                        model: input.model,
-                        prompt: input.prompt,
-                        parameters: input.parameters,
-                        strength: request.operation === 'edit' ? input.strength : null,
-                        original: request.operation === 'edit' ? input.image : null,
-                        image,
-                        createdAt: new Date().toISOString(),
-                        chosen: false
-                    };
+                    return createCandidate(request, input, image);
                 }
             );
             for (const candidate of created) candidates.set(candidate.id, candidate);
@@ -315,6 +329,280 @@ export function createTaskFaceController(
         return begin('edit', input);
     }
 
+    function createCandidate(request, input, image) {
+        const candidate = {
+            id: globalThis.crypto.randomUUID(),
+            taskId: request.subjectType === 'project' ? null : input.taskId,
+            projectId: input.projectId,
+            subjectType: request.subjectType ?? 'task',
+            subjectId: request.subjectId ?? input.taskId,
+            operation: request.operation,
+            model: input.model,
+            parameters: input.parameters,
+            strength: request.operation === 'edit' ? input.strength : null,
+            original: request.operation === 'edit' ? input.image : null,
+            image,
+            createdAt: new Date().toISOString(),
+            chosen: false
+        };
+        if (request.operation !== 'initial') {
+            candidate.prompt = input.prompt;
+            candidate.source = input.source;
+        }
+        return candidate;
+    }
+
+    function setInitialState(request, nextStatus, nextMessage, faceId = null) {
+        if (initialRequests.get(request.key) !== request) return;
+        initialStates.set(
+            request.key,
+            {
+                taskId: request.taskId,
+                projectId: request.input.projectId,
+                subjectType: request.subjectType,
+                subjectId: request.subjectId,
+                status: nextStatus,
+                message: nextMessage,
+                progress: request.progress,
+                faceId
+            }
+        );
+        publish();
+    }
+
+    function initialSubjectIsCurrent(request, subject) {
+        if (disposed || request.signal.aborted
+            || initialRequests.get(request.key) !== request
+            || choices.has(request.key) || subject?.id !== request.subjectId) return false;
+        if (request.subjectType === 'project') {
+            return (subject.name ?? '') === request.input.source.name
+                && (subject.description ?? '') === request.input.source.description;
+        }
+        return (subject.projectId ?? null) === (request.input.projectId ?? null)
+            && (subject.title ?? '') === request.input.source.title
+            && (subject.assignment ?? '') === request.input.source.assignment;
+    }
+
+    function ensureInitialFace(input = {}) {
+        return ensureInitialAvatar('task', input);
+    }
+
+    function ensureInitialProjectFace(input = {}) {
+        return ensureInitialAvatar('project', input);
+    }
+
+    function ensureInitialAvatar(subjectType, input) {
+        requireOpen();
+        const subjectId = subjectType === 'project' ? input.projectId : input.taskId;
+        const key = `${subjectType}:${subjectId}`;
+        const modelId = typeof input.model === 'string' ? input.model : input.model?.id;
+        const source = subjectType === 'project' ? {
+            name: input.source?.name,
+            description: input.source?.description
+        } : {
+            title: input.source?.title,
+            assignment: input.source?.assignment,
+            projectPurpose: input.source?.projectPurpose
+        };
+        const previous = initialRequests.get(key);
+        const sameSource = previous && Object.keys(source).every(
+            function sameSourceField(field) {
+                return previous.input.source[field] === source[field];
+            }
+        );
+        if (previous && !previous.signal.aborted
+            && previous.modelId === modelId
+            && previous.input.projectId === input.projectId
+            && sameSource) {
+            return previous.task;
+        }
+        const controller = new AbortController();
+        const request = {
+            operation: 'initial',
+            key,
+            subjectType,
+            subjectId,
+            taskId: subjectType === 'task' ? input.taskId : null,
+            modelId,
+            controller,
+            signal: AbortSignal.any(
+                [
+                    lifetimeSignal,
+                    controller.signal,
+                    ...(
+                        input.signal ? [input.signal] : []
+                    )
+                ]
+            ),
+            input: {...input, source},
+            ready: false,
+            resume: null,
+            progress: null,
+            task: null
+        };
+        initialRequests.set(key, request);
+        request.task = track(
+            Promise.resolve().then(
+                function startInitialFace() {
+                    return executeInitialFace(request);
+                }
+            )
+        );
+        if (previous && !previous.signal.aborted) {
+            previous.controller.abort(
+                abortReason('The initial avatar request was superseded.')
+            );
+        }
+        setInitialState(request, 'Thinking', 'Thinking');
+        return request.task;
+    }
+
+    async function readInitialSubject(request) {
+        const subject = request.subjectType === 'project'
+            ? await data.getProject(request.subjectId) : await data.getTask(request.subjectId);
+        checkRequest(request);
+        let reason = null;
+        if (!subject) reason = `${request.subjectType}-missing`;
+        else if (subject.faceRef !== null && subject.faceRef !== undefined) reason = 'face-present';
+        else if (!initialSubjectIsCurrent(request, subject)) reason = 'request-stale';
+        if (!reason) return null;
+        return request.subjectType === 'project'
+            ? {applied: false, reason, project: subject}
+            : {applied: false, reason, task: subject};
+    }
+
+    function initialOutcome(request, outcome, detail = {}) {
+        const faceId = (outcome.project ?? outcome.task)?.faceRef ?? null;
+        request.progress = null;
+        setInitialState(
+            request,
+            faceId ? 'ready' : 'cancelled',
+            outcome.applied ? 'Avatar saved.'
+                : faceId ? 'Using the saved avatar.'
+                    : 'The work changed. This avatar request was cancelled.',
+            faceId
+        );
+        return {...detail, ...outcome, faceId};
+    }
+
+    async function executeInitialFace(request) {
+        const input = request.input;
+        try {
+            checkRequest(request);
+            const project = request.subjectType === 'project';
+            if (typeof data?.[project ? 'getProject' : 'getTask'] !== 'function'
+                || typeof data?.[project ? 'setProjectFaceIfEmpty' : 'setTaskFaceIfEmpty'] !== 'function') {
+                throw new Error('The PM initial-avatar data owner is unavailable.');
+            }
+            const existing = await readInitialSubject(request);
+            if (existing) return initialOutcome(request, existing);
+            if (typeof request.modelId !== 'string' || !request.modelId.trim()) {
+                throw new TypeError('Choose an image model before requesting an avatar.');
+            }
+            if (typeof input.prompt !== 'string' || !input.prompt.trim()) {
+                throw new TypeError('The avatar requires its complete image description.');
+            }
+            for (const field of Object.keys(input.source)) {
+                if (typeof input.source[field] !== 'string') {
+                    throw new TypeError(`The avatar source requires complete ${field} text.`);
+                }
+            }
+            do {
+                await waitForModel(request);
+                checkRequest(request);
+            } while (modelState.state !== 'ready');
+            const beforeGeneration = await readInitialSubject(request);
+            if (beforeGeneration) return initialOutcome(request, beforeGeneration);
+            const result = await imageRuntime.generate(
+                {
+                    model: input.model,
+                    prompt: input.prompt,
+                    parameters: input.parameters,
+                    signal: request.signal,
+                    onProgress: function initialImageProgress(value) {
+                        if (initialRequests.get(request.key) === request
+                            && !request.signal.aborted && !disposed) {
+                            request.progress = value;
+                            setInitialState(request, 'Thinking', 'Creating the avatar.');
+                        }
+                    }
+                }
+            );
+            checkRequest(request);
+            const beforeSave = await readInitialSubject(request);
+            if (beforeSave) {
+                return initialOutcome(
+                    request,
+                    beforeSave,
+                    {result}
+                );
+            }
+            const created = result.images.map(
+                function initialFaceCandidate(image) {
+                    return createCandidate(request, input, image);
+                }
+            );
+            if (!created.length) throw new Error('The image model returned no avatar.');
+            for (const candidate of created) candidates.set(candidate.id, candidate);
+            const candidate = created[0];
+            request.progress = null;
+            setInitialState(request, 'saving', 'Saving the avatar.');
+            checkRequest(request);
+            const metadata = await persistCandidate(candidate, request.signal);
+            checkRequest(request);
+            const associationOptions = {
+                signal: request.signal,
+                isCurrent: function sameInitialSubject(subject) {
+                    return initialSubjectIsCurrent(request, subject);
+                }
+            };
+            const outcome = project
+                ? await data.setProjectFaceIfEmpty(request.subjectId, candidate.id, associationOptions)
+                : await data.setTaskFaceIfEmpty(request.subjectId, candidate.id, associationOptions);
+            candidate.chosen = outcome.applied;
+            // Report a write already accepted by the data owner even after cancellation.
+            return initialOutcome(
+                request,
+                outcome,
+                {metadata, result, candidates: created.map(publicCandidate)}
+            );
+        } catch (error) {
+            request.progress = null;
+            const cancelled = request.signal.aborted || error.name === 'AbortError';
+            setInitialState(
+                request,
+                cancelled ? 'cancelled' : 'error',
+                cancelled ? 'Avatar generation cancelled.'
+                    : 'The avatar could not be created. Review the image model and try again.'
+            );
+            if (!cancelled) globalThis.console?.error('Arcane PM initial avatar failed.', error);
+            throw error;
+        } finally {
+            if (initialRequests.get(request.key) === request) {
+                initialRequests.delete(request.key);
+            }
+            request.input = null;
+        }
+    }
+
+    function cancelInitialFace(taskId) {
+        cancelInitialAvatar(`task:${taskId}`);
+    }
+
+    function cancelInitialProjectFace(projectId) {
+        cancelInitialAvatar(`project:${projectId}`);
+    }
+
+    function cancelInitialAvatar(key) {
+        const request = initialRequests.get(key);
+        if (!request || request.signal.aborted) return;
+        request.controller.abort(
+            abortReason('The initial avatar was cancelled.')
+        );
+        request.progress = null;
+        setInitialState(request, 'cancelled', 'Avatar generation cancelled.');
+    }
+
     function importCandidate(
         {taskId, image, prompt = '', signal: importSignal} = {}
     ) {
@@ -337,6 +625,8 @@ export function createTaskFaceController(
             const candidate = {
                 id: globalThis.crypto.randomUUID(),
                 taskId,
+                subjectType: 'task',
+                subjectId: taskId,
                 operation: 'import',
                 model: null,
                 prompt,
@@ -360,72 +650,99 @@ export function createTaskFaceController(
         requireOpen();
         const candidate = candidates.get(candidateId);
         if (!candidate) throw new Error('That face candidate is no longer available.');
+        const key = `${candidate.subjectType ?? 'task'}:${candidate.subjectId ?? candidate.taskId}`;
         if (
-            choices.has(candidate.taskId)
+            choices.has(key)
         ) {
-            throw new Error('A face selection is already being saved for this task.');
+            throw new Error('A face selection is already being saved for this work.');
         }
         const choice = {
+            key,
             candidate,
             signal: selectionSignal ? AbortSignal.any(
                 [lifetimeSignal, selectionSignal]
             ) : lifetimeSignal
         };
-        choices.set(candidate.taskId, choice);
-        publish();
-        return track(
-            saveChoice(choice)
+        choices.set(key, choice);
+        const task = track(
+            Promise.resolve().then(
+                function saveSelectedFace() {
+                    return saveChoice(choice);
+                }
+            )
         );
+        cancelInitialAvatar(key);
+        publish();
+        return task;
     }
 
     async function saveChoice(choice) {
         const candidate = choice.candidate;
         try {
             choice.signal.throwIfAborted();
-            if (typeof getStorage !== 'function' || typeof data?.setTaskFace !== 'function') {
+            const project = candidate.subjectType === 'project';
+            if (typeof getStorage !== 'function'
+                || typeof data?.[project ? 'setProjectFace' : 'setTaskFace'] !== 'function') {
                 throw new Error('The PM face storage owner is unavailable.');
             }
-            const storage = await getStorage();
-            choice.signal.throwIfAborted();
-            const imageFile = `${candidate.id}.${candidate.operation === 'import' ? 'image' : 'png'}`;
-            const originalFile = candidate.original ? `${candidate.id}-original.png` : null;
-            const metadata = {
-                id: candidate.id,
-                taskId: candidate.taskId,
-                operation: candidate.operation,
-                model: candidate.model,
-                prompt: candidate.prompt,
-                parameters: candidate.parameters ?? null,
-                strength: candidate.strength,
-                imageFile,
-                originalFile,
-                mediaType: candidate.image.mediaType,
-                name: candidate.image.name ?? null,
-                width: candidate.image.width,
-                height: candidate.image.height,
-                createdAt: candidate.createdAt
-            };
-            await storage.writeFile(FACE_IMAGES, imageFile, candidate.image.blob);
-            choice.signal.throwIfAborted();
-            if (originalFile) {
-                await storage.writeFile(FACE_IMAGES, originalFile, candidate.original);
-                choice.signal.throwIfAborted();
-            }
-            await storage.set(FACE_RECORDS, `${candidate.id}.json`, metadata);
+            const metadata = await persistCandidate(candidate, choice.signal);
             choice.signal.throwIfAborted();
             // Once this data-owner write is accepted, report its actual outcome.
-            const task = await data.setTaskFace(candidate.taskId, candidate.id);
+            const subject = project
+                ? await data.setProjectFace(candidate.projectId, candidate.id)
+                : await data.setTaskFace(candidate.taskId, candidate.id);
             candidate.chosen = true;
-            return {faceId: candidate.id, metadata, task};
+            return project ? {faceId: candidate.id, metadata, project: subject}
+                : {faceId: candidate.id, metadata, task: subject};
         } catch (error) {
             if (!choice.signal.aborted && error.name !== 'AbortError') {
                 globalThis.console?.error('Arcane PM task-face selection failed.', error);
             }
             throw error;
         } finally {
-            choices.delete(candidate.taskId);
+            choices.delete(choice.key);
             publish();
         }
+    }
+
+    async function persistCandidate(candidate, operationSignal) {
+        operationSignal.throwIfAborted();
+        if (typeof getStorage !== 'function') throw new Error('The PM face storage owner is unavailable.');
+        const storage = await getStorage();
+        operationSignal.throwIfAborted();
+        const imageFile = `${candidate.id}.${candidate.operation === 'import' ? 'image' : 'png'}`;
+        const originalFile = candidate.original ? `${candidate.id}-original.png` : null;
+        const metadata = {
+            id: candidate.id,
+            taskId: candidate.taskId,
+            subjectType: candidate.subjectType ?? 'task',
+            subjectId: candidate.subjectId ?? candidate.taskId,
+            operation: candidate.operation,
+            model: candidate.model,
+            parameters: candidate.parameters ?? null,
+            strength: candidate.strength,
+            imageFile,
+            originalFile,
+            mediaType: candidate.image.mediaType,
+            name: candidate.image.name ?? null,
+            width: candidate.image.width,
+            height: candidate.image.height,
+            createdAt: candidate.createdAt
+        };
+        if (candidate.operation === 'initial') {
+            metadata.projectId = candidate.projectId;
+        } else {
+            metadata.prompt = candidate.prompt;
+        }
+        await storage.writeFile(FACE_IMAGES, imageFile, candidate.image.blob);
+        operationSignal.throwIfAborted();
+        if (originalFile) {
+            await storage.writeFile(FACE_IMAGES, originalFile, candidate.original);
+            operationSignal.throwIfAborted();
+        }
+        await storage.set(FACE_RECORDS, `${candidate.id}.json`, metadata);
+        operationSignal.throwIfAborted();
+        return metadata;
     }
 
     function read(
@@ -528,6 +845,8 @@ export function createTaskFaceController(
         ).then(
             function faceWorkDisposed() {
                 candidates.clear();
+                initialRequests.clear();
+                initialStates.clear();
                 active = null;
                 progress = null;
                 status = 'disposed';
@@ -544,5 +863,9 @@ export function createTaskFaceController(
     );
     if (lifetimeSignal.aborted) dispose();
 
-    return {generate, edit, importCandidate, choose, read, current, subscribe, cancel, dispose};
+    return {
+        generate, edit, ensureInitialFace, cancelInitialFace,
+        ensureInitialProjectFace, cancelInitialProjectFace,
+        importCandidate, choose, read, current, subscribe, cancel, dispose
+    };
 }
