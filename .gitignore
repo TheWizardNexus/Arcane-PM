@@ -3,4 +3,5 @@
 /build/
 /dist/
 /.arcane/
+/.codex/hooks.json
 /modules/data/browser-replay.html
