@@ -13,7 +13,7 @@ search and preparation remain available independently.
 ```js
 const bridge = createCodexBridge({coreClient});
 const view = mountConnectionsView(container, {
-    bridge, pmData, projectId, discoverTasks, onNavigate, onStatus, signal
+    bridge, pmData, projectId, connectCodex, discoverTasks, onNavigate, onStatus, signal
 });
 ```
 
@@ -105,6 +105,14 @@ tasks whose saved project cannot otherwise be established; a missing catalog
 field does not establish that a task is unassigned. Data preserves PM IDs,
 editable labels, content, avatars and manual status. It does not infer running
 state from discovery or merge projects merely because roots overlap.
+
+The optional application-owned `connectCodex({signal})` callback handles the
+Connect action and owns discovery in the document that initiated it. Connection
+readiness still arrives through the bridge subscription; the view does not
+interpret the initial connecting response as a completed connection or scan.
+The page signal controls its wait, while the application owns ongoing connection
+and discovery lifetime. Standalone callers without this callback retain the
+direct `bridge.connect` action.
 
 The application-owned `discoverTasks` callback composes broad discovery and
 idempotent Data mapping. Connections consumes the returned wrapper, and exact

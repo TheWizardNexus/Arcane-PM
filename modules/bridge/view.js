@@ -1,7 +1,7 @@
 import {mountCodexRequests} from './requests.js';
 
 /** Connection and association workflow; shared shell owns its layout and theme. */
-export function mountConnectionsView(container, {bridge, pmData, projectId, discoverTasks, onNavigate, onStatus, signal} = {}) {
+export function mountConnectionsView(container, {bridge, pmData, projectId, connectCodex, discoverTasks, onNavigate, onStatus, signal} = {}) {
     const lifetime = new AbortController();
     const pageSignal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
     let closed = false;
@@ -114,7 +114,8 @@ export function mountConnectionsView(container, {bridge, pmData, projectId, disc
 
     async function connect() {
         showOperation('Connecting to Codex…', 'connect');
-        await bridge.connect({signal: pageSignal});
+        if (connectCodex) await connectCodex({signal: pageSignal});
+        else await bridge.connect({signal: pageSignal});
         if (operationOwner === 'connect') renderState(bridge.status());
     }
 
