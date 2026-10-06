@@ -44,15 +44,41 @@ async function openStorage() {
         throw dataError('PM_DATA_STORAGE_UNAVAILABLE', 'The open storage connection belongs to a different application.');
     }
     const lifetime = new AbortController();
+    let resumeRevision = 0;
     db.subscribeChanges(storageRecordChanged, {signal: lifetime.signal});
     globalThis.addEventListener('pagehide', function closeRecordNotifications(event) {
+        resumeRevision++;
         pendingRefreshes.clear();
         if (event.persisted) return;
         lifetime.abort();
         knownRecords.project.clear();
         knownRecords.task.clear();
     }, {signal: lifetime.signal});
+    globalThis.addEventListener('pageshow', function resumeRecordNotifications(event) {
+        if (!event.persisted) return;
+        const revision = ++resumeRevision;
+        for (const recordType of Object.keys(tables)) {
+            refreshResumedTable(recordType, revision).catch(function reportResumeReadFailure(error) {
+                console.error(`Arcane PM could not refresh saved ${recordType} records after resuming.`, error);
+            });
+        }
+    }, {signal: lifetime.signal});
     return db;
+
+    async function refreshResumedTable(recordType, revision) {
+        const keys = await db.getAllKeys(tables[recordType]);
+        if (lifetime.signal.aborted || revision !== resumeRevision) return;
+        const ids = new Set(knownRecords[recordType]);
+        for (const key of keys) {
+            if (!key.endsWith('.json')) continue;
+            try {
+                ids.add(decodeURIComponent(key.replace(/\.json$/, '')));
+            } catch (error) {
+                console.error('Arcane PM could not read a saved record filename after resuming.', {recordType, key, error});
+            }
+        }
+        for (const id of ids) queueRecordRefresh(recordType, id);
+    }
 }
 
 function storageRecordChanged(occurrence) {

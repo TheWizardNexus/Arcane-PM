@@ -413,10 +413,14 @@ caller's existing displayed record rather than presenting a failed read as a
 removal. Explicit list/read operations retain their ordinary failure contract.
 
 The SDK notifications are live only. They do not replay changes missed while a
-document is suspended or closed; application view owners refresh their saved
-state when resuming a suspended page. SDK cache invalidation alone does not
-refresh a consumer's retained view. Non-persisted `pagehide` releases Data's
-storage subscription and pending notifications. Separate WebView storage
+document is suspended or closed. On a persisted `pageshow`, Data enumerates each
+PM table once and refreshes the union of its current record IDs and previously
+known IDs through the same bounded queue. Existing subscribers therefore receive
+current rows, additions and removals without remounting views or discarding
+unsaved form input. Ordinary live notifications still read only affected rows.
+Every `pagehide` invalidates pending reads; a newer hide or resume also retires
+an unfinished resume inventory. Non-persisted `pagehide` releases Data's storage
+subscription. Separate WebView storage
 partitions and direct OPFS writes outside DBOPFS are outside this transport.
 Without `BroadcastChannel`, SDK local storage and local notifications remain
 available, while cross-document notifications are unavailable.
