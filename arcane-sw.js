@@ -576,7 +576,7 @@
     "schemaVersion": 1,
     "appId": "arcane-pm",
     "appVersion": "0.1.0",
-    "sdkVersion": "0.78.0",
+    "sdkVersion": "0.79.1",
     "revision": "development",
     "mode": "development",
     "assets": [
@@ -613,6 +613,7 @@
         "/modules/local-ai/model-services.js",
         "/modules/local-ai/preparation.js",
         "/modules/local-ai/request-slot.js",
+        "/modules/local-ai/speech.js",
         "/modules/local-ai/view.css",
         "/modules/local-ai/view.js",
         "/modules/sources/README.md",
