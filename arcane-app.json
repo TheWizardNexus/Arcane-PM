@@ -39,6 +39,11 @@
     },
     "native": {
         "type": "app",
+        "launchContext": {
+            "appControl": {
+                "endpoint": "\\\\.\\pipe\\arcane-pm-control"
+            }
+        },
         "icon": "assets/arcane-pm-icon.png",
         "window": {
             "width": 1280,

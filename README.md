@@ -59,6 +59,16 @@ On Windows, run `npm run build:windows` to build the native application. Close t
 
 A successful build establishes the selected package result. Connection behavior, window presentation, and other native interactions require acceptance in that packaged app; a browser preview establishes only its own behavior.
 
+The Windows application exposes the SDK's app-scoped control endpoint at
+`\\.\pipe\arcane-pm-control`. With the built application running, use
+`arcane app-control status --endpoint '\\.\pipe\arcane-pm-control'` or
+`connectAppControl` from `arcane-os/core/app-control` for status, document
+inspection, viewport capture, and targeted DOM actions. Use the document
+generation returned by inspection for each action and inspect its actual
+result. The connection preserves the application's existing Core, origin,
+profile, and window; closing the controller leaves the application running.
+See the [published app-control API](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.82.0/docs/reference/native-app-control.md).
+
 ## Explore the designs
 
 The public site uses focused pages rather than a long scrolling landing page, with matching light, dark, and mobile layouts.
