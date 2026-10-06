@@ -195,11 +195,13 @@ export class CodexAppServer {
                 capabilities: {experimentalApi: true}
             }, {initializing: true});
             await this.write({method: 'initialized', params: {}});
-            await this.refreshAccount();
             if (this.child !== child || this.closing || this.state === 'error') {
                 throw new CoreError({code: 'PM_CODEX_CONNECTION_CLOSED', message: 'Codex disconnected while connecting.'});
             }
             this.publishState('connected', 'Codex connected.');
+            this.refreshAccount().catch(function reportInitialAccountObservationFailure(error) {
+                owner.diagnostic('account-observation', error);
+            });
             return this.current();
         } catch (error) {
             if (!this.connectionWanted) return this.current();
