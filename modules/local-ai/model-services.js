@@ -789,7 +789,7 @@ export function createPMModelServices(
                 };
                 projection = await prepareModelAssets(
                     {
-                        source, workingDirectory: '.arcane/model-working', offline, signal: operation.signal,
+                        source, offline, signal: operation.signal,
                         onProgress: function imageAssetsProgress(progress) {
                             if (imageLoad !== operation || operation.signal.aborted) return;
                             imageLoadState = {...imageLoadState, progress};
@@ -838,11 +838,12 @@ export function createPMModelServices(
     }
 
     async function prepareModelAssets(
-        {source, members, workingDirectory, offline = true, signal: requestSignal, onProgress} = {}
+        {source, members, offline = true, signal: requestSignal, onProgress} = {}
     ) {
         assertOpen();
         const selectedClient = requireCore();
-        const currentSignal = operationSignal(requestSignal);
+        const currentSignal = AbortSignal.any([operationSignal(requestSignal), coreLifetime.signal]);
+        currentSignal.throwIfAborted();
         let completeMembers = members;
         if (source) {
             const store = await getModelStore();
@@ -858,6 +859,12 @@ export function createPMModelServices(
                 }
             );
         }
+        const {workingDirectory} = await selectedClient.invoke(
+            'pm.modelContext.current',
+            {},
+            {signal: currentSignal}
+        );
+        currentSignal.throwIfAborted();
         const projection = await prepareCoreModelAssets(
             {client: selectedClient, workingDirectory, members: completeMembers, signal: currentSignal, onProgress}
         );

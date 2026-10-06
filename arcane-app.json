@@ -67,6 +67,7 @@
         "services": [
             {"module": "bridge/codex-service.mjs", "options": {}},
             {"module": "bridge/hooks-service.mjs", "options": {}},
+            {"module": "native/model-context-service.mjs", "options": {}},
             {"module": "native/decision-service.mjs", "options": {}}
         ]
     },

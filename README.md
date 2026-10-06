@@ -59,6 +59,14 @@ On Windows, run `npm run build:windows` to build the native application. Close t
 
 A successful build establishes the selected package result. Connection behavior, window presentation, and other native interactions require acceptance in that packaged app; a browser preview establishes only its own behavior.
 
+The native `pm.modelContext.current` method returns `{workingDirectory}` for
+temporary model projections. It resolves `model-working` under the actual
+`stateRoot` supplied to the service by the published SDK launch context. Image
+and decision preparation use this one app-owned location through the SDK model
+asset service. DBOPFS remains the original model store, and the SDK owns each
+projection's preparation, engine use and release. This method reads the launch
+context without creating, moving or cleaning any stored files.
+
 The Windows application exposes the SDK's app-scoped control endpoint at
 `\\.\pipe\arcane-pm-control`. With the built application running, use
 `arcane app-control status --endpoint '\\.\pipe\arcane-pm-control'` or

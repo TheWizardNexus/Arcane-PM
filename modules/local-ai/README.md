@@ -330,7 +330,7 @@ queue or readiness polling.
   model, preparing its complete configured resources through the model store
   and releasing its temporary projection after native loading settles. The
   app owner retains its operation, progress and error through page navigation.
-- `prepareModelAssets({source,members,workingDirectory,offline = true,signal,onProgress})`
+- `prepareModelAssets({source,members,offline = true,signal,onProgress})`
   prepares SDK-owned temporary native projections from complete cached assets
   or supplied complete Blob members. An explicit `offline: false` permits the
   SDK model store to acquire a selected missing resource into the shared DBOPFS
@@ -339,6 +339,13 @@ queue or readiness polling.
   `url`; an optional PM-owned `path` selects the native relative projection path.
   Without `path`, projection uses the SDK-normalized filename. Complete stored
   files retain the source descriptor's order through that mapping.
+  Each preparation reads `pm.modelContext.current` once from its selected Core
+  client immediately before projection, then passes the returned absolute
+  `workingDirectory` unchanged to the SDK. The native service resolves
+  `model-working` under its actual launch `stateRoot`. Image and decision loads
+  share this location without placing working files in the packaged app tree.
+  Core replacement cancels the pending lookup and projection through the same
+  operation signal. The lookup adds no startup wait or directory cache.
   The caller uses `releaseModelAssets(projection)` after the native owner takes
   its retain during load. That paired method also releases this owner's retained
   projection reference. `prepareImageAssets` remains an alias for existing callers.

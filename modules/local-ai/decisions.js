@@ -312,7 +312,7 @@ export function createPMDecisionController({modelServices, signal, client} = {})
                 });
                 operation.signal.throwIfAborted();
                 projection = await modelServices.prepareModelAssets({
-                    source: choice.source, workingDirectory: '.arcane/model-working', offline, signal: operation.signal,
+                    source: choice.source, offline, signal: operation.signal,
                     onProgress(progress) {
                         if (operation.signal.aborted || closed) return;
                         loadState = {...loadState, progress};
