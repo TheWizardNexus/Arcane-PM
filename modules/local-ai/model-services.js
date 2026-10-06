@@ -657,7 +657,7 @@ export function createPMModelServices(
                         return {name: entry[1].filename, url: entry[1].url};
                     })
                 };
-                projection = await prepareImageAssets(
+                projection = await prepareModelAssets(
                     {source, workingDirectory: '.arcane/model-working', offline, signal: operation.signal}
                 );
                 resourcePaths = Object.fromEntries(resources.map(function resourceRole(entry) {
@@ -679,8 +679,7 @@ export function createPMModelServices(
         } finally {
             if (projection) {
                 try {
-                    await projection.release();
-                    projections.delete(projection);
+                    await releaseModelAssets(projection);
                 } catch (error) {
                     failure = failure
                         ? new AggregateError([failure, error], 'Image model loading and preparation cleanup failed.')
@@ -700,7 +699,7 @@ export function createPMModelServices(
         return result;
     }
 
-    async function prepareImageAssets(
+    async function prepareModelAssets(
         {source, members, workingDirectory, offline = true, signal: requestSignal, onProgress} = {}
     ) {
         assertOpen();
@@ -729,6 +728,11 @@ export function createPMModelServices(
         }
         projections.add(projection);
         return projection;
+    }
+
+    async function releaseModelAssets(projection) {
+        await projection.release();
+        projections.delete(projection);
     }
 
     function dispose() {
@@ -827,7 +831,9 @@ export function createPMModelServices(
         getModelStore,
         getImageRuntime,
         loadImage,
-        prepareImageAssets,
+        prepareModelAssets,
+        releaseModelAssets,
+        prepareImageAssets: prepareModelAssets,
         getONNXRuntime,
         dispose
     };

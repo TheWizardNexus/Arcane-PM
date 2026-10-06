@@ -2,6 +2,7 @@
 .pm-local-ai > div,
 .pm-ai-preparation,
 .pm-ai-models,
+.pm-ai-decisions,
 .pm-ai-faces {
     min-inline-size: 0;
 }
@@ -63,8 +64,47 @@
 }
 
 .pm-local-ai [data-control="response-region"] > * + *,
-.pm-local-ai [data-control="saved-notes-region"] > * + * {
+.pm-local-ai [data-control="saved-notes-region"] > * + *,
+.pm-ai-decisions > * + *,
+.pm-ai-decision-result > * + *,
+.pm-local-ai [data-control="decision-results"] > * + * {
     margin-block-start: var(--arcane-space-3);
+}
+
+.pm-ai-decision-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--arcane-space-4);
+}
+
+.pm-ai-decision-option {
+    display: grid;
+    min-inline-size: 0;
+    gap: var(--arcane-space-2);
+}
+
+.pm-ai-decision-option > button {
+    justify-self: start;
+}
+
+.pm-ai-decision-scores {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pm-ai-decision-scores li {
+    padding-block: var(--arcane-space-3);
+    border-block-start: 1px solid var(--arcane-border);
+}
+
+.pm-ai-decision-scores p {
+    margin: 0;
+}
+
+.pm-ai-decision-option-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .pm-ai-status,
@@ -181,7 +221,8 @@
 }
 
 @media (max-width: 42rem) {
-    .pm-ai-face-workspace {
+    .pm-ai-face-workspace,
+    .pm-ai-decision-options {
         grid-template-columns: minmax(0, 1fr);
     }
 }

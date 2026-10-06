@@ -12,10 +12,10 @@ Import from `modules/local-ai/index.js`:
 const services = createPMPreparationServices(
     {getStorage, pmData, signal}
 );
-const {modelServices, localAI, faces, initialAvatars} = services;
+const {modelServices, localAI, faces, initialAvatars, decisions} = services;
 const view = mountLocalAIView(
     container,
-    {modelServices, localAI, faces, pmData, projectId, signal}
+    {modelServices, localAI, faces, decisions, pmData, projectId, signal}
 );
 ```
 
@@ -24,7 +24,8 @@ that same ready DBOPFS connection. Construct services once. A view owns its
 request signals and subscriptions. Application disposal joins preparation/face
 cleanup before closing SDK accessors owned by this composition. The lower-level
 exports include `createPMModelServices`, `createLocalPreparationController`,
-`createPreparationRequestSlot` and `createInitialAvatarPreparation`.
+`createPreparationRequestSlot`, `createInitialAvatarPreparation` and
+`createPMDecisionController`.
 
 The preparation view reads its task list once on mount or explicit refresh.
 Committed Data events update the supplied complete row in its keyed task list
@@ -211,13 +212,14 @@ queue or readiness polling.
   model, preparing its complete configured resources through the model store
   and releasing its temporary projection after native loading settles. The
   app owner retains its operation, progress and error through page navigation.
-- `prepareImageAssets({source,members,workingDirectory,offline = true,signal,onProgress})`
+- `prepareModelAssets({source,members,workingDirectory,offline = true,signal,onProgress})`
   prepares SDK-owned temporary native projections from complete cached assets
   or supplied complete Blob members. An explicit `offline: false` permits the
   SDK model store to acquire a selected missing resource into the shared DBOPFS
   cache. The image model Load action uses that path for configured SDK resources.
-  The caller releases its returned
-  projection after the native owner takes its retain during load.
+  The caller uses `releaseModelAssets(projection)` after the native owner takes
+  its retain during load. That paired method also releases this owner's retained
+  projection reference. `prepareImageAssets` remains an alias for existing callers.
 - `dispose()` joins owned cleanup and releases SDK accessors/projections.
 
 Model loading belongs to the app's model owner. Leaving the local preparation
@@ -323,17 +325,74 @@ Ordinary task browsing, local text search and manual preparation remain usable
 without Core or loaded models. Source integration is distinct from actual
 native inference and provider availability on an individual device.
 
-## Browser typed decisions: published capability and PM mapping
+## Native next-step comparison
 
-This is a documented integration map, not an implemented PM decision feature.
-The existing preparation view continues to use its text request owner. No
-decision runtime or model was loaded during this review.
+`services.decisions` is the app-owned
+`createPMDecisionController({modelServices, signal, client})`. Its explicit
+comparison is independent of the text preparation and face-generation requests.
+It scores complete caller-supplied alternatives; it does not generate a
+conversation, choose tools for user messages, or change task status.
+
+- `current()` and replaying `subscribe(listener, {signal})` expose operation,
+  model and loading state without retaining comparison inputs or results.
+- `load({offline = true, signal})` prepares Laya's FP32 model and tokenizer
+  through the existing SDK model store and temporary native projection owner.
+  The view's explicit Load action permits acquisition of missing resources.
+  Once accepted, loading belongs to the app and continues across page navigation.
+- `evaluate({taskId, rows, runOptions, signal, onDiagnostic})` publishes `Thinking`
+  synchronously, waits for this exact selected model to be ready and loaded,
+  and forwards complete rows unchanged. It observes Core and model lifecycle
+  until the result commits. The returned `{decisions, outputs}` is the complete
+  native RPC result; the SDK owns its tensor transport encoding.
+- `cancel()` cancels the one active comparison. Cancellation during inference
+  follows the native SDK's activation-wide cancellation. Cancelling a readiness
+  wait leaves an independent model load running.
+- `unload({signal})` and `dispose()` join native cleanup and pending work.
+  A supplied Core client remains fixed; otherwise the controller follows the
+  published Core installation owner and cancels work when its client retires.
+
+PM selects `onnx-community/laya-typed-decisions-ONNX`, revision `main`, dtype
+`fp32`, using the published members `onnx/model.onnx`, adjacent
+`onnx/model.onnx_data`, `tokenizer.json` and `tokenizer_config.json`. The SDK
+stores the complete assets in the shared DBOPFS model cache. Its native owner
+retains the projection while loaded; the browser releases its preparation
+ownership after native loading settles. Cached-only preparation is the API
+default. A working offline comparison also requires the installed native
+runtime and those complete cached assets; source integration alone does not
+establish that runtime outcome.
+
+Foundation owns `native/decision-service.mjs` and its descriptor registration.
+The browser consumes `pm.decisions.status`, `pm.decisions.load` with the actual
+`assetProjectionId`, `pm.decisions.evaluate` with `{rows, runOptions?}`, and
+`pm.decisions.unload`. It subscribes to `pm.decisions.state` before reading
+status after Core readiness. The native adapter delegates inference and complete
+RPC output encoding to the published `arcane-os/core/decisions` service.
+
+The view keeps state, question and each alternative in separate complete fields.
+It displays the actual recommended alternative and every returned option score.
+These scores are model preferences, not calibrated confidence or observed task
+facts. “Use recommended step” copies the original selected alternative into the
+existing note editor; the ordinary Save action remains deliberate. Inputs and
+results are transient and clear on replacement or disposal. Complete technical
+requests, responses and errors belong in developer diagnostics, outside saved
+notes and history.
+
+Public references: [native typed decisions](https://thewizardnexus.github.io/arcane-os-sdk/reference/native-decisions/)
+and [model assets](https://thewizardnexus.github.io/arcane-os-sdk/reference/model-assets/).
+This increment provides an explicit local comparison. The broader local
+conversation and agent outcomes retain their separate acceptance boundaries.
+
+## Historical browser decision capability review
+
+The following records the earlier `0.64.0` browser API review. PM now composes
+the native comparison above; it does not use this browser backend. No decision
+runtime or model was loaded during that earlier review.
 
 The governing PM outcome remains offline local Jev/local LLM preparation with
 application model assets in DBOPFS. This browser API's upstream cache does not
 establish that offline storage contract, so its existence does not complete
-the outcome. The SDK coordinator is tracing whether already-owned native FP32
-work supplies the required public path. No browser backend redesign, optional
+the outcome. The subsequent native increment uses the published FP32 path and
+the shared DBOPFS model owner. No browser backend redesign, optional
 runtime/model download or new dependency was selected by this mapping.
 
 The published entry point is
@@ -349,7 +408,7 @@ selection, not an established native Core integration or execution result.
 
 | PM operation | Applicable contract and current boundary |
 | --- | --- |
-| Evaluate explicit next-step choices against complete task state | `evaluate(rows, {signal})` can score caller-owned choices. Each row supplies complete `state`, `question`, `options` and optional `type`. PM would own their meaning and the operation that consumes the result. This path is not yet composed in PM. |
+| Evaluate explicit next-step choices against complete task state | Browser `evaluate(rows, {signal})` can score caller-owned choices. Each row supplies complete `state`, `question`, `options` and optional `type`. PM's implemented comparison instead uses the native controller documented above. |
 | Draft a preparation note or make model-selected tool calls | Existing `localAI.prepare` uses the text request owner. Typed decisions score supplied options and do not generate chat text or emitted tool calls. |
 | Evaluate state/questions through remote Jev/System One | `fetchSystemOneRequest` from `arcane-os/ai/twin-cloud` uses explicit `twinKey`, `model`, `state` and `questions` at the remote DigitalOcean endpoint. Its result is parsed JSON; it is not a local fallback. |
 

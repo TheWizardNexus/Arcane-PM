@@ -1,6 +1,6 @@
 /** PM preparation and deliberate task-face selection, using injected domain owners. */
 export function mountLocalAIView(container, {
-    localAI, faces, modelServices, pmData, projectId = null, taskId = null,
+    localAI, faces, modelServices, decisions, pmData, projectId = null, taskId = null,
     onNavigate, onStatus, signal
 } = {}) {
     const page = new AbortController();
@@ -90,6 +90,28 @@ export function mountLocalAIView(container, {
                 <p class="pm-ai-hint" data-control="model-hint">Project browsing and local search remain available while a model loads.</p>
             </section>
         </div>
+        <section class="pm-panel pm-ai-decisions">
+            <h2>Compare next steps</h2>
+            <div class="pm-actions">
+                <button type="button" class="arcane-button arcane-button--secondary" data-control="load-decisions">Load comparison model</button>
+                <button type="button" class="arcane-button arcane-button--secondary" data-control="unload-decisions">Unload comparison model</button>
+            </div>
+            <p class="pm-ai-status" role="status" data-control="decision-model-status">Load the local comparison model when you need it. Its download is stored for reuse.</p>
+            <form data-control="decision-form">
+                <div class="arcane-form-grid">
+                    <label class="arcane-field"><span class="arcane-field__label">Current situation</span><textarea data-control="decision-state" rows="4" required></textarea></label>
+                    <label class="arcane-field"><span class="arcane-field__label">Question to decide</span><textarea data-control="decision-question" rows="4" required></textarea></label>
+                </div>
+                <div class="pm-ai-decision-options" data-control="decision-options"></div>
+                <button type="button" class="arcane-button arcane-button--tertiary" data-control="add-decision-option">Add an option</button>
+                <div class="pm-actions">
+                    <button class="arcane-button" data-control="compare-decisions">Compare next steps</button>
+                    <button type="button" class="arcane-button arcane-button--secondary" data-control="cancel-decisions" disabled>Cancel comparison</button>
+                </div>
+            </form>
+            <p class="pm-ai-status" role="status" aria-live="polite" data-control="decision-status">Enter the situation, your question and at least two possible next steps.</p>
+            <div data-control="decision-results" hidden></div>
+        </section>
         <section class="pm-panel pm-ai-faces">
             <header><h2>A familiar face for this task</h2><p class="pm-ai-hint">Preview candidates, then choose the image you want to keep.</p></header>
             <div class="pm-ai-face-workspace">
@@ -137,6 +159,11 @@ export function mountLocalAIView(container, {
     let modelState = modelServices?.current?.() ?? {model: null, catalog: []};
     let imageState = imageRuntime?.current?.() ?? {models: [], available: false};
     let faceState = faces?.current?.() ?? {candidates: [], choosingTaskIds: []};
+    let decisionState = decisions?.current?.() ?? null;
+    const decisionOptions = [];
+    let decisionOperation = null;
+    let decisionModelBusy = false;
+    let decisionResult = null;
     const tasks = new Map();
     const taskOptions = new Map();
     let selectedTaskId = taskId;
@@ -187,9 +214,26 @@ export function mountLocalAIView(container, {
         controls['unload-image'].disabled = !imageRuntime || imageBusy || modelState.imageLoad?.busy || !imageState.selectedModel;
         controls['generate-face'].disabled = !hasTask || !faces || !imageState.selectedModel || Boolean(faceOperation);
         controls['cancel-face'].disabled = !faceOperation;
-        controls.task.disabled = Boolean(preparation || faceOperation || selectingFace || savingNote);
+        controls.task.disabled = Boolean(preparation || faceOperation || decisionOperation || selectingFace || savingNote);
         controls['save-note'].disabled = savingNote;
         controls['use-response'].disabled = Boolean(preparation) || !controls.response.textContent;
+        const decisionModel = decisionState?.model;
+        const decisionAvailable = Boolean(decisions && decisionState?.available && !decisionState.closed);
+        const decisionLoading = decisionModelBusy || decisionState?.load?.busy
+            || ['loading', 'unloading', 'disposing'].includes(decisionModel?.state);
+        const decisionReady = decisionModel?.loaded && decisionModel.state === 'ready';
+        controls['load-decisions'].disabled = !decisionAvailable || decisionLoading || decisionReady;
+        controls['unload-decisions'].disabled = !decisionAvailable || decisionLoading || !decisionModel?.loaded;
+        controls['compare-decisions'].disabled = !decisionAvailable || Boolean(decisionOperation)
+            || decisionState?.status === 'Thinking';
+        controls['cancel-decisions'].disabled = !decisionOperation;
+        controls['decision-state'].readOnly = Boolean(decisionOperation);
+        controls['decision-question'].readOnly = Boolean(decisionOperation);
+        controls['add-decision-option'].disabled = Boolean(decisionOperation);
+        for (const option of decisionOptions) {
+            option.input.readOnly = Boolean(decisionOperation);
+            option.remove.disabled = Boolean(decisionOperation) || decisionOptions.length <= 2;
+        }
     }
 
     function selectedProviderLabel(model) {
@@ -531,6 +575,204 @@ export function mountLocalAIView(container, {
         }
     }
 
+    function renderDecisionState(snapshot) {
+        if (pageSignal.aborted) return;
+        const wasThinking = decisionState?.status === 'Thinking';
+        decisionState = snapshot;
+        const model = snapshot?.model;
+        const load = snapshot?.load;
+        const failed = Boolean(load?.error || model?.error);
+        const message = !decisions || !snapshot?.available
+            ? 'Next-step comparison needs a connected local runtime. Your preparation note remains available.'
+            : load?.busy
+                ? load.status === 'preparing' ? 'Preparing the local comparison model…' : 'Loading the local comparison model…'
+                : failed
+                    ? 'The comparison model is unavailable. Try loading it again.'
+                    : model?.loaded && model.state === 'ready'
+                        ? 'Local comparison model ready.'
+                        : model?.state === 'unloading' || model?.state === 'disposing'
+                            ? 'Unloading the comparison model…'
+                            : 'Load the local comparison model when you need it. Its download is stored for reuse.';
+        status(controls['decision-model-status'], message, failed ? 'error' : load?.busy ? 'working' : 'idle');
+        if (decisionOperation) {
+            const progress = snapshot.phase === 'waiting' && !(model?.loaded && model.state === 'ready')
+                ? load?.busy || model?.state === 'loading'
+                    ? 'Thinking · waiting for the comparison model to finish loading.'
+                    : 'Thinking · load the comparison model to continue.'
+                : snapshot.message;
+            status(controls['decision-status'], progress, snapshot.status);
+        } else if (snapshot?.status === 'Thinking') {
+            status(controls['decision-status'], 'A comparison is already in progress.', 'Thinking');
+        } else if (wasThinking && !decisionResult) {
+            status(controls['decision-status'], 'Compare your options when ready.');
+        }
+        updateControls();
+    }
+
+    function clearDecisionResult() {
+        decisionResult = null;
+        controls['decision-results'].replaceChildren();
+        controls['decision-results'].hidden = true;
+    }
+
+    function comparisonInputChanged() {
+        if (!decisionResult) return;
+        clearDecisionResult();
+        status(controls['decision-status'], 'Your comparison changed. Compare again when ready.');
+    }
+
+    function renumberDecisionOptions() {
+        for (const [index, option] of decisionOptions.entries()) {
+            option.label.textContent = `Option ${index + 1}`;
+            option.remove.setAttribute('aria-label', `Remove option ${index + 1}`);
+        }
+        updateControls();
+    }
+
+    function addDecisionOption(focus = false) {
+        const row = document.createElement('div');
+        row.className = 'pm-ai-decision-option';
+        const label = document.createElement('label');
+        label.className = 'arcane-field';
+        const title = document.createElement('span');
+        title.className = 'arcane-field__label';
+        const input = document.createElement('textarea');
+        input.rows = 3;
+        input.required = true;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'arcane-button arcane-button--tertiary';
+        remove.dataset.action = 'remove-decision-option';
+        remove.textContent = 'Remove option';
+        label.append(title, input);
+        row.append(label, remove);
+        decisionOptions.push({row, label: title, input, remove});
+        controls['decision-options'].append(row);
+        renumberDecisionOptions();
+        comparisonInputChanged();
+        if (focus) input.focus();
+    }
+
+    function removeDecisionOption(event) {
+        const button = event.target.closest('[data-action="remove-decision-option"]');
+        if (!button || decisionOperation || decisionOptions.length <= 2) return;
+        const index = decisionOptions.findIndex(function optionForRemoveButton(option) {
+            return option.remove === button;
+        });
+        if (index === -1) return;
+        decisionOptions[index].input.value = '';
+        decisionOptions[index].row.remove();
+        decisionOptions.splice(index, 1);
+        renumberDecisionOptions();
+        comparisonInputChanged();
+        decisionOptions[Math.min(index, decisionOptions.length - 1)].input.focus();
+    }
+
+    function renderDecisionResult(result) {
+        const region = controls['decision-results'];
+        region.replaceChildren();
+        for (const [index, decision] of result.decisions.entries()) {
+            const section = document.createElement('section');
+            section.className = 'pm-ai-decision-result';
+            const heading = document.createElement('h3');
+            heading.textContent = 'Recommended next step';
+            const recommendation = document.createElement('pre');
+            recommendation.textContent = decision.value;
+            const copy = document.createElement('button');
+            copy.type = 'button';
+            copy.className = 'arcane-button arcane-button--secondary';
+            copy.dataset.decisionIndex = index;
+            copy.textContent = 'Use recommended step in note';
+            const scoresHeading = document.createElement('h4');
+            scoresHeading.textContent = 'All options';
+            const alternatives = document.createElement('ol');
+            alternatives.className = 'pm-ai-decision-scores';
+            for (const [optionIndex, value] of decision.row.options.entries()) {
+                const alternative = document.createElement('li');
+                const label = document.createElement('p');
+                label.className = 'pm-ai-hint';
+                label.textContent = `Option ${optionIndex + 1}${optionIndex === decision.answerIndex ? ' · Recommended' : ''} · Score: ${decision.probabilities[optionIndex]}`;
+                const text = document.createElement('p');
+                text.className = 'pm-ai-decision-option-text';
+                text.textContent = value;
+                alternative.append(label, text);
+                alternatives.append(alternative);
+            }
+            section.append(heading, recommendation, copy, scoresHeading, alternatives);
+            region.append(section);
+        }
+        const note = document.createElement('p');
+        note.className = 'pm-ai-hint';
+        note.textContent = 'A recommendation for you to review. Scores compare these options; they are not calibrated confidence. This comparison is temporary. Use the recommended step in your note, then save the note when ready.';
+        region.append(note);
+        region.hidden = false;
+    }
+
+    function useDecisionInNote(event) {
+        const button = event.target.closest('[data-decision-index]');
+        if (!button || !decisionResult) return;
+        const decision = decisionResult.decisions[Number(button.dataset.decisionIndex)];
+        if (!decision) return;
+        controls.note.value = decision.row.options[decision.answerIndex];
+        controls.note.focus();
+        status(controls['prepare-status'], 'Recommended step copied into your note. Edit it and choose Save note when ready.');
+    }
+
+    async function submitDecision(event) {
+        event.preventDefault();
+        if (!decisions || decisionOperation || pageSignal.aborted) return;
+        const operation = new AbortController();
+        const operationSignal = AbortSignal.any([pageSignal, operation.signal]);
+        decisionOperation = operation;
+        clearDecisionResult();
+        status(controls['decision-status'], 'Thinking', 'Thinking');
+        updateControls();
+        try {
+            const result = await decisions.evaluate({
+                taskId: selectedTaskId,
+                rows: [{
+                    state: controls['decision-state'].value,
+                    question: controls['decision-question'].value,
+                    options: decisionOptions.map(function completeDecisionOption(option) { return option.input.value; }),
+                    type: 'choice'
+                }],
+                signal: operationSignal,
+                onDiagnostic: function reportComparisonDiagnostic(diagnostic) {
+                    console.debug('Arcane PM next-step comparison.', diagnostic);
+                }
+            });
+            if (operationSignal.aborted || decisionOperation !== operation) return;
+            decisionResult = result;
+            renderDecisionResult(result);
+            status(controls['decision-status'], 'Comparison ready. Review the options before choosing your next step.', 'complete');
+        } catch (error) {
+            reportFailure(controls['decision-status'], 'The comparison could not finish. Your inputs are ready to try again.',
+                error, decisionOperation === operation);
+            if (!pageSignal.aborted && decisionOperation === operation && (operationSignal.aborted || error?.name === 'AbortError')) {
+                status(controls['decision-status'], 'Comparison cancelled. Load its model again when needed.', 'cancelled');
+            }
+        } finally {
+            if (decisionOperation === operation) decisionOperation = null;
+            if (!pageSignal.aborted) updateControls();
+        }
+    }
+
+    async function performDecisionModelAction(action, message) {
+        if (!decisions || decisionModelBusy || pageSignal.aborted) return;
+        decisionModelBusy = true;
+        status(controls['decision-model-status'], message, 'working');
+        updateControls();
+        try {
+            await action();
+            if (!pageSignal.aborted) renderDecisionState(decisions.current());
+        } catch (error) {
+            reportFailure(controls['decision-model-status'], 'The comparison model could not finish that action. Try again.', error);
+        } finally {
+            decisionModelBusy = false;
+            if (!pageSignal.aborted) updateControls();
+        }
+    }
+
     function renderProviderMode() {
         const mode = controls['provider-mode'].value;
         controls['local-fields'].hidden = mode !== 'local';
@@ -786,6 +1028,9 @@ export function mountLocalAIView(container, {
 
     function changeTask() {
         selectedTaskId = controls.task.value || null;
+        decisionOperation?.abort();
+        clearDecisionResult();
+        status(controls['decision-status'], 'Compare the options for the selected task when ready.');
         editSource = null;
         controls['edit-source'].textContent = 'Choose “Edit this image” on the current face or a candidate.';
         clearPreviews(controls.candidates);
@@ -813,6 +1058,11 @@ export function mountLocalAIView(container, {
         controls['saved-note'].textContent = '';
         controls['remote-key'].value = '';
         controls['tool-results'].replaceChildren();
+        controls['decision-state'].value = '';
+        controls['decision-question'].value = '';
+        for (const option of decisionOptions) option.input.value = '';
+        decisionOptions.length = 0;
+        clearDecisionResult();
         editSource = null;
         savedNotes = [];
         root.remove();
@@ -821,6 +1071,26 @@ export function mountLocalAIView(container, {
     controls['prepare-form'].addEventListener('submit', submitPreparation, {signal: pageSignal});
     controls['model-form'].addEventListener('submit', submitModel, {signal: pageSignal});
     controls['face-form'].addEventListener('submit', submitFace, {signal: pageSignal});
+    controls['decision-form'].addEventListener('submit', submitDecision, {signal: pageSignal});
+    controls['decision-form'].addEventListener('input', comparisonInputChanged, {signal: pageSignal});
+    controls['decision-options'].addEventListener('click', removeDecisionOption, {signal: pageSignal});
+    controls['decision-results'].addEventListener('click', useDecisionInNote, {signal: pageSignal});
+    controls['add-decision-option'].addEventListener('click', function addComparisonOption() {
+        if (!decisionOperation) addDecisionOption(true);
+    }, {signal: pageSignal});
+    controls['load-decisions'].addEventListener('click', function loadComparisonModel() {
+        performDecisionModelAction(function activateComparisonModel() {
+            return decisions.load({offline: false});
+        }, 'Preparing the local comparison model…');
+    }, {signal: pageSignal});
+    controls['unload-decisions'].addEventListener('click', function unloadComparisonModel() {
+        performDecisionModelAction(function releaseComparisonModel() {
+            return decisions.unload();
+        }, 'Unloading the comparison model…');
+    }, {signal: pageSignal});
+    controls['cancel-decisions'].addEventListener('click', function cancelThisComparison() {
+        decisionOperation?.abort();
+    }, {signal: pageSignal});
     controls['provider-mode'].addEventListener('change', renderProviderMode, {signal: pageSignal});
     controls['face-action'].addEventListener('change', renderFaceAction, {signal: pageSignal});
     controls['image-file'].addEventListener('change', importFace, {signal: pageSignal});
@@ -866,6 +1136,7 @@ export function mountLocalAIView(container, {
     if (modelServices?.subscribe) subscriptions.push(modelServices.subscribe(renderModels, {signal: pageSignal}));
     if (imageRuntime?.subscribe) subscriptions.push(imageRuntime.subscribe(renderImageModels, {replay: true, signal: pageSignal}));
     if (faces?.subscribe) subscriptions.push(faces.subscribe(renderFaces, {signal: pageSignal}));
+    if (decisions?.subscribe) subscriptions.push(decisions.subscribe(renderDecisionState, {signal: pageSignal}));
     if (localAI?.subscribe) subscriptions.push(localAI.subscribe(function preparationStatusChanged(snapshot) {
         if (preparation) status(controls['prepare-status'], snapshot.message, snapshot.status);
     }, {signal: pageSignal}));
@@ -874,6 +1145,9 @@ export function mountLocalAIView(container, {
     controls['saved-notes-region'].hidden = typeof localAI?.listNotes !== 'function';
     renderProviderMode();
     renderFaceAction();
+    addDecisionOption();
+    addDecisionOption();
+    renderDecisionState(decisionState);
     updateControls();
     if (pageSignal.aborted) dispose();
     else {
