@@ -446,20 +446,21 @@ export class CodexAppServer {
             record.reject(new CoreError({code: 'PM_CODEX_DISCONNECTED', message: 'Codex disconnected before this request was sent.'}));
             this.pending.delete(id);
         }
-        function releaseClosingConnection() {
-            if (owner.closing === operation) owner.closing = null;
-            owner.emit('pm.codex.state', owner.current());
-        }
-        operation.then(releaseClosingConnection, releaseClosingConnection);
         return operation;
 
         async function closeOwnedConnection() {
-            await owner.writeQueue;
-            if (!child.stdin.destroyed && !child.stdin.writableEnded) child.stdin.end();
-            const exit = await owner.closed;
-            if (exit.code !== 0) {
-                throw new CoreError({code: 'PM_CODEX_EXIT_FAILED', message: 'The Codex process ended without a successful exit.', processExit: exit});
+            try {
+                await owner.writeQueue;
+                if (!child.stdin.destroyed && !child.stdin.writableEnded) child.stdin.end();
+                const exit = await owner.closed;
+                if (exit.code !== 0) {
+                    throw new CoreError({code: 'PM_CODEX_EXIT_FAILED', message: 'The Codex process ended without a successful exit.', processExit: exit});
+                }
+            } finally {
+                if (owner.closing === operation) owner.closing = null;
+                owner.emit('pm.codex.state', owner.current());
             }
+            // Both the event and RPC result describe the completed close.
             return owner.current();
         }
     }

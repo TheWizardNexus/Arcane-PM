@@ -147,6 +147,10 @@ native connected state; account metadata arrived independently. Reload restored
 that connected state through the service status read without another Connect
 action. The observed host status retained connection ID `1`. This establishes
 that selected connection path, not native sends, approvals or other platforms.
+After a coordinated host restart, the old browser client reported retirement;
+reload restored the explicit connection action. A subsequent Connect/Disconnect
+pass reported successful native process exit and cleared `closing` in the final
+RPC result, leaving Connect available again.
 
 The installed SDK `0.65.0` public `arcane-os/core/client`,
 `arcane-os/core/runtime` and `arcane-os/event-manager` supply reusable transport,
