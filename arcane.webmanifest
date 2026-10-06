@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Arcane PM",
+  "short_name": "Arcane PM",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fcfbf9",
+  "theme_color": "#0a2e3c",
+  "icons": [
+    {
+      "src": "/assets/arcane-pm-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

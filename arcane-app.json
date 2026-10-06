@@ -14,7 +14,24 @@
         "strategy": "static",
         "include": ["index.html", "app.css", "assets", "modules"],
         "exclude": [],
-        "shared": ["browser-runtime"]
+        "shared": ["browser-runtime"],
+        "pwa": {
+            "enabled": true,
+            "manifest": {
+                "id": "./",
+                "display": "standalone",
+                "background_color": "#fcfbf9",
+                "theme_color": "#0a2e3c",
+                "icons": [
+                    {
+                        "src": "assets/arcane-pm-icon.svg",
+                        "sizes": "any",
+                        "type": "image/svg+xml",
+                        "purpose": "any"
+                    }
+                ]
+            }
+        }
     },
     "native": {
         "type": "app",
