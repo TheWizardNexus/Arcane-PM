@@ -42,6 +42,9 @@
         "launchContext": {
             "appControl": {
                 "endpoint": "\\\\.\\pipe\\arcane-pm-control"
+            },
+            "coreListener": {
+                "endpoint": "\\\\.\\pipe\\arcane-pm-core"
             }
         },
         "icon": "assets/arcane-pm-icon.png",

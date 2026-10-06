@@ -76,7 +76,17 @@ generation returned by inspection for each action and inspect its actual
 result. Use the returned `shadowPath` to inspect or act within an open component
 shadow root, including the shared appearance control. The connection preserves the application's existing Core, origin,
 profile, and window; closing the controller leaves the application running.
-See the [published app-control API](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.83.1/docs/reference/native-app-control.md).
+See the [published app-control API](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.84.0/docs/reference/native-app-control.md).
+
+The native launch context also selects `coreListener` at
+`\\.\pipe\arcane-pm-core` so local clients can call the running window's existing
+Core services. Use `connectSharedCoreHost({endpoint})` from `arcane-os/core/host`
+with that endpoint and `start` omitted, then call the existing application method
+through `connection.client.invoke(method, parameters)`. Close the connection
+when finished. The window continues to own its Core, profile, state root and
+shutdown; a listener client does not start another runtime. The descriptor omits
+`sharedHost`, whose independent lifetime serves a different application setup.
+See the [published existing-Core listener contract](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.84.0/docs/reference/core-shared-host.md#attach-to-an-existing-window-owned-core).
 
 ## Explore the designs
 
