@@ -46,6 +46,7 @@ Records returned to callers are independent copies of SDK cached records.
 | Archive / restore task | `archiveTask(id)` / `restoreTask(id)` |
 | Remove only selected task record | `removeTaskRecord(id)` |
 | Deliberately select a face | `setTaskFace(id, faceRef)` |
+| Attach an automatic first face conditionally | `setTaskFaceIfEmpty(id, faceRef, {isCurrent?, signal?} = {})` |
 | Observe committed changes | `subscribe(handler, {signal?} = {})` returning unsubscribe |
 
 Lists include archived records by default, preserve complete records, and sort
@@ -102,6 +103,30 @@ unsupported or malformed fields rather than silently discarding them. It never
 accepts raw provider/tool envelopes, system/bootstrap prompts, transient
 `Thinking`, or nonpersistent operation content as a generic record payload.
 No content migration is performed on old data.
+
+### Automatic first-face association
+
+`setTaskFaceIfEmpty` accepts a nonblank existing face reference and returns
+`{applied, reason, task}`. It uses the same task-record edit boundary as manual
+`setTaskFace`. A missing task returns `task-missing` with `task:null`; an existing
+face returns `face-present`; neither path writes, emits a change, or recreates a
+task. A successful association returns `applied:true`, `reason:'assigned'` and
+the saved task. All returned task records are independent copies.
+
+The face owner may supply `isCurrent(currentTask)`, a synchronous boolean
+predicate evaluated against the latest detached task inside the edit boundary.
+Use it to match the still-active generation request and its exact task content.
+`false` returns `request-stale` without writing; a promise or nonboolean is an
+input error. This avoids using `updatedAt` as a generation identity, since
+unrelated observations can legitimately update a task. The face owner retains
+generation, candidate assets and request cancellation; data owns only the
+conditional association. No account connection is inferred or changed.
+
+Cancellation is checked after the current record is read and immediately before
+the write. An OPFS write already accepted completes. A manual choice already
+saved prevents automatic assignment; a manual choice queued afterward replaces
+the automatic face through the same edit boundary. Other task fields, including
+archive state, remain unchanged.
 
 ## Archive and removal
 

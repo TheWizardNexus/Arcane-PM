@@ -369,6 +369,43 @@ export async function restoreTask(id) { return updateRecord('task', id, {archive
 export async function removeTaskRecord(id) { return removeRecord('task', id); }
 export async function setTaskFace(id, faceRef) { return updateTask(id, {faceRef}); }
 
+/** Attach a completed first-face candidate only while its task and request still match. */
+export async function setTaskFaceIfEmpty(id, faceRef, {isCurrent, signal} = {}) {
+    text(faceRef, 'faceRef', true);
+    if (isCurrent !== undefined && typeof isCurrent !== 'function') {
+        throw dataError('PM_DATA_INPUT', 'isCurrent must be a synchronous task predicate.');
+    }
+    checkCancellation(signal);
+    return editRecord('task', id, async function associateFirstTaskFace() {
+        checkCancellation(signal);
+        const db = await getStorage();
+        const record = readStoredRecord(await db.get(tables.task, fileName(id), true), 'task', id);
+        checkCancellation(signal);
+        if (record === null) return {applied: false, reason: 'task-missing', task: null};
+        if (record.faceRef !== null && record.faceRef !== undefined) {
+            return {applied: false, reason: 'face-present', task: record};
+        }
+        if (isCurrent) {
+            const current = isCurrent(structuredClone(record));
+            if (current && typeof current.then === 'function') {
+                Promise.resolve(current).catch(function observeUnsupportedAsyncFacePredicate(error) {
+                    console.error('The asynchronous task-face predicate rejected after returning unsupported input.', error);
+                });
+            }
+            if (typeof current !== 'boolean') {
+                throw dataError('PM_DATA_INPUT', 'isCurrent must return a boolean synchronously.');
+            }
+            if (!current) return {applied: false, reason: 'request-stale', task: record};
+        }
+        checkCancellation(signal);
+        record.faceRef = faceRef;
+        record.updatedAt = new Date().toISOString();
+        await db.set(tables.task, fileName(id), record);
+        publishChange('task', 'updated', id, record);
+        return {applied: true, reason: 'assigned', task: structuredClone(record)};
+    });
+}
+
 export function subscribe(handler, options = {}) {
     if (typeof handler !== 'function') throw dataError('PM_DATA_INPUT', 'subscribe requires a handler.');
     return arcaneEvents.subscribe(DATA_CHANGED_EVENT, function forwardPMRecordChange(occurrence) {
@@ -380,7 +417,7 @@ export const pmData = {
     getStorage, createProject, getProject, updateProject, listProjects,
     archiveProject, restoreProject, removeProjectRecord,
     createTask, getTask, updateTask, listTasks, archiveTask, restoreTask,
-    removeTaskRecord, setTaskFace, subscribe
+    removeTaskRecord, setTaskFace, setTaskFaceIfEmpty, subscribe
 };
 
 export default pmData;
