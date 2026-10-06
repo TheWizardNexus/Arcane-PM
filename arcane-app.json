@@ -15,6 +15,10 @@
         "include": ["index.html", "app.css", "assets", "modules"],
         "exclude": [],
         "shared": ["browser-runtime"],
+        "nativeResources": {
+            "include": ["bridge", "native", "package.json"],
+            "exclude": []
+        },
         "pwa": {
             "enabled": true,
             "manifest": {
@@ -35,7 +39,7 @@
     },
     "native": {
         "type": "app",
-        "icon": null,
+        "icon": "assets/arcane-pm-icon.png",
         "order": 0,
         "bundledApps": [],
         "localAI": {
@@ -58,7 +62,8 @@
     },
     "requirements": {
         "arcaneProtocol": "arcane/1",
+        "minimumCoreVersion": "0.8.12",
         "features": []
     },
-    "targets": ["browser"]
+    "targets": ["browser", "windows-x64"]
 }

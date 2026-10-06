@@ -90,6 +90,14 @@
     "modules"
   ],
   "exclude": [],
+  "nativeResources": {
+    "include": [
+      "bridge",
+      "native",
+      "package.json"
+    ],
+    "exclude": []
+  },
   "shared": [
     "browser-runtime"
   ]

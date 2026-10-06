@@ -576,11 +576,12 @@
     "schemaVersion": 1,
     "appId": "arcane-pm",
     "appVersion": "0.1.0",
-    "sdkVersion": "0.75.0",
+    "sdkVersion": "0.78.0",
     "revision": "development",
     "mode": "development",
     "assets": [
         "/app.css",
+        "/assets/arcane-pm-icon.png",
         "/assets/arcane-pm-icon.svg",
         "/assets/project-guide.png",
         "/index.html",
