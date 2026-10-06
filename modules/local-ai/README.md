@@ -130,14 +130,21 @@ or exact prompt adherence.
 
 ## Published SDK and delivery boundaries
 
-Foundation owns installation, import maps and the shared preview. The package
-selected for implementation is `arcane-os@0.62.0`; its development declaration
-tracks `latest` through that owner. Browser-WASM and Core llama.cpp expose local
-text routes. Ollama capability/catalog presence alone is not proof of an
-actually loaded model. Published ONNX handles tensor sessions; a local Jev chat
-pipeline has not been established from the inspected public contracts. The
-located Jev operation is remote System One with state/questions input. Exact
-contract questions were referred to the SDK owner through the PM manager.
+Foundation owns installation, import maps and the shared preview. Initial
+implementation and browser evidence used `arcane-os@0.62.0`; the installed
+package inspected for the decision-model mapping below is `0.64.0`. The
+development declaration tracks `latest` through the foundation owner.
+Browser-WASM and Core llama.cpp expose local text routes. Ollama
+capability/catalog presence alone is not proof of an actually loaded model.
+Its exact lifecycle correction remains with the SDK owner.
+
+An earlier API inventory omitted the published browser typed-decision pipeline.
+`createBrowserDecisionModel` supports Laya/Julia state/question/options
+evaluation. Preserve that existing capability when describing local decision
+support. Generic ONNX tensor sessions, browser typed decisions, conversational
+text/tool requests and remote Jev/System One are separate public contracts.
+Local Jev chat, agent behavior and native FP32 execution have not been
+established by this PM review.
 
 Optional DigitalOcean serverless inference uses the published `TWIN` provider's
 endpoint, model and access-key settings. Its explicit selection meets the
@@ -154,6 +161,90 @@ model downloads were not selected or executed during this task.
 Ordinary task browsing, local text search and manual preparation remain usable
 without Core or loaded models. Source integration is distinct from actual
 native inference and provider availability on an individual device.
+
+## Browser typed decisions: published capability and PM mapping
+
+This is a documented integration map, not an implemented PM decision feature.
+The existing preparation view continues to use its text request owner. No
+decision runtime or model was loaded during this review.
+
+The governing PM outcome remains offline local Jev/local LLM preparation with
+application model assets in DBOPFS. This browser API's upstream cache does not
+establish that offline storage contract, so its existence does not complete
+the outcome. The SDK coordinator is tracing whether already-owned native FP32
+work supplies the required public path. No browser backend redesign, optional
+runtime/model download or new dependency was selected by this mapping.
+
+The published entry point is
+`import {createBrowserDecisionModel} from 'arcane-os/ai/browser-decisions'`.
+Construction accepts `{family, model, revision, device, runtime}`. The
+documented selections are `family: 'laya'` with
+`model: 'onnx-community/laya-typed-decisions-ONNX'` (FP16), or
+`family: 'julia'` with `model: 'SupersonicLabs/Julia-1-ONNX'` (FP32).
+`revision` defaults to `main` and `device` to `webgpu`. A compatible alternative
+backend must be explicitly selected; the SDK does not substitute a backend,
+precision or model automatically. Julia FP32 here describes the browser graph
+selection, not an established native Core integration or execution result.
+
+| PM operation | Applicable contract and current boundary |
+| --- | --- |
+| Evaluate explicit next-step choices against complete task state | `evaluate(rows, {signal})` can score caller-owned choices. Each row supplies complete `state`, `question`, `options` and optional `type`. PM would own their meaning and the operation that consumes the result. This path is not yet composed in PM. |
+| Draft a preparation note or make model-selected tool calls | Existing `localAI.prepare` uses the text request owner. Typed decisions score supplied options and do not generate chat text or emitted tool calls. |
+| Evaluate state/questions through remote Jev/System One | `fetchSystemOneRequest` from `arcane-os/ai/twin-cloud` uses explicit `twinKey`, `model`, `state` and `questions` at the remote DigitalOcean endpoint. Its result is parsed JSON; it is not a local fallback. |
+
+Each row uses string state/question and a nonempty string-array of options;
+the `noul` type requires exactly two false/true choices. This is a row API,
+not the remote keyed-question or OpenJev helper-object contract.
+Rows and options remain in caller order. The SDK documents complete unchanged
+strings at the tokenizer boundary, with required model encoding owned inside
+the SDK. PM must preserve supplied task/source content and keep its question,
+options and routing information in their separate fields. This mapping does
+not authorize classifying user-authored chat to narrow its configured tools.
+
+`evaluate` returns `{decisions, outputs}`. Each decision retains its original
+row, option `logits`, raw-softmax `probabilities`, `answerIndex` and `value`.
+For `choice`, `value` is the complete selected option; `score` is the weighted
+zero-based option index; `noul` is option 1's probability for a two-option row.
+Graph action outputs exist only when the selected graph actually returns them.
+`outputs` retains complete named tensor data for explicit diagnostics. These
+scores are not calibrated confidence or automatic PM policy, and the API
+does not write chat history, memory or DBOPFS records.
+
+`status()` exposes `{family, model, revision, device, dtype, state, loaded,
+busy, activeRequests, progress, error}`. `subscribe(listener,
+{emitCurrent: true, signal})` replays current state by default. States are
+`unloaded`, `loading`, `ready`, `error` and `disposed`; `loaded` follows
+the SDK's successful ready state. An explicit `load({signal})` prepares the
+activation. `evaluate(rows, {signal})` also starts that activation on first
+use and waits for it before sending rows for inference. A future PM operation
+must publish its visible `Thinking` state synchronously and observe this exact
+client's model/lifecycle without delaying the application shell.
+
+Abort, `unload()` or `dispose()` terminates that client's dedicated Worker and
+rejects every outstanding operation on it. Cancellation is client-wide;
+independent cancellation requires separate clients. Unload permits later
+reactivation; disposal is terminal. Concurrent operations share activation,
+while the selected backend owns execution ordering. A replaced activation
+ignores old Worker replies. Technical errors remain in developer diagnostics.
+
+Import and construction start no Worker or download. Explicit `load` or
+`evaluate` uses the upstream runtime, tokenizer and weights with normal browser
+loading/caching. The default runtime is Transformers.js `4.3.0` at its published
+CDN module. This API does not expose the cached-only `offline: true` option
+used by PM's browser text model store; existing cache alone is not an offline
+availability guarantee. No additional model/runtime download or execution was
+selected here.
+
+This mapping is based on the installed published `0.64.0` documentation and
+client source, following the SDK coordinator's inventory correction. No PM
+model loading, browser FP16/FP32 inference, numerical parity, native execution,
+or model cancellation was run. The SDK coordinator also reports no additional
+actual Laya/Julia browser, native or PM execution evidence. Static lifecycle
+source review does not establish those execution outcomes.
+
+Public references: [browser typed decisions](https://cdn.jsdelivr.net/npm/arcane-os@0.64.0/docs/reference/ai/browser-decisions.md),
+[published decision client](https://cdn.jsdelivr.net/npm/arcane-os@0.64.0/browser-runtime/ai/browser-decisions.mjs),
+and [remote System One](https://cdn.jsdelivr.net/npm/arcane-os@0.64.0/docs/reference/ai/twin-cloud.md#evaluate-caller-owned-state-with-system-one).
 
 ## Ownership and work cardinality
 
