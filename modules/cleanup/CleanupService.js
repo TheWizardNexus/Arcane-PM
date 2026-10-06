@@ -75,7 +75,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
                 reviewRecord.buttonLabel = 'Restore this PM task';
                 break;
             case 'remove-task-record':
-                reviewRecord.effect = 'Remove this one PM task record, including its assignment and PM lifecycle fields. Related records remain with their owners.';
+                reviewRecord.effect = 'Remove this one PM task record, including its assignment and PM lifecycle fields. Its original conversation and related records remain with their owners. A later deliberate Codex discovery may create a new PM record for that conversation.';
                 reviewRecord.buttonLabel = 'Remove this PM record';
                 break;
             case 'archive-native-task':
@@ -273,7 +273,7 @@ export function createCleanupService({pmData, bridge, disposableResources} = {})
                     status = 'unchanged';
                 }
                 message = status === 'completed'
-                    ? 'The selected PM task record was removed. Its original conversation and working files remain with their owners.'
+                    ? 'The selected PM task record was removed. Its original conversation and working files remain with their owners. A later deliberate Codex discovery may create a new PM record.'
                     : status === 'unchanged'
                         ? 'The selected PM task record was already absent.'
                         : 'The data owner did not confirm removal. Refresh before trying again.';

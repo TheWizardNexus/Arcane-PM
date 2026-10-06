@@ -65,7 +65,7 @@ displays the separate user-facing message.
 | --- | --- |
 | `archive-task` | `pmData.archiveTask(id)` updates PM archive metadata. The task's status, identity, full content and related records remain available. |
 | `restore-task` | `pmData.restoreTask(id)` clears PM archive metadata. |
-| `remove-task-record` | `pmData.removeTaskRecord(id)` removes exactly that PM row. Sources, handoffs, model/face assets, native chats and working files remain with their owners. |
+| `remove-task-record` | `pmData.removeTaskRecord(id)` removes exactly that PM row. Sources, handoffs, model/face assets, native chats and working files remain with their owners. A later deliberate Codex discovery may create a new PM record for the still-existing native chat. |
 | `archive-native-task` | `bridge.archiveThread({threadId,identity,signal})` archives the original Codex chat and attempts its spawned descendants. The selected chat's acknowledgment does not establish every descendant's result. |
 | `restore-native-task` | `bridge.restoreThread({threadId,identity,signal})` restores only the selected original Codex chat. Spawned descendants are not selected for restoration. |
 | `delete-native-task` | `bridge.deleteThread({threadId,identity,signal})` requests permanent deletion of the original Codex chat and its spawned descendants. This is irreversible and does not require prior archival. Individual descendant results remain unconfirmed here. |
@@ -76,6 +76,11 @@ working files, selected sources and saved handoffs. PM archival, restoration
 and removal never invoke native lifecycle operations. Native archive and delete
 can stop work or close pending prompts on the selected connection before their
 storage mutation completes; a later failure does not prove nothing changed.
+
+PM-record removal updates only the local record and its local views; it never
+starts native discovery. It creates no suppression record. A later deliberate
+Connect, Find or discovery refresh may recreate local metadata from a native
+chat that still exists.
 
 ## Native destination and result contract
 
