@@ -5,6 +5,23 @@ function element(tag, className, text) {
     return node;
 }
 
+function guideIcon(pathData) {
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'pm-guide-icon');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('fill', 'none');
+    icon.setAttribute('stroke', 'currentColor');
+    icon.setAttribute('stroke-width', '1.7');
+    icon.setAttribute('stroke-linecap', 'round');
+    icon.setAttribute('stroke-linejoin', 'round');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.setAttribute('focusable', 'false');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', pathData);
+    icon.append(path);
+    return icon;
+}
+
 function action(label, handler, secondary = false) {
     const button = element('button', `arcane-button${secondary ? ' arcane-button--secondary' : ''}`, label);
     button.type = 'button';
@@ -39,8 +56,8 @@ function taskColumn(task, activity) {
 }
 
 function statusText(task) {
-    const status = task.status === 'unknown' ? 'Unknown' : task.status.replaceAll('-', ' ');
-    return `PM status: ${status}${task.attention ? ' · Needs your input' : ''}`;
+    const status = task.status === 'idle' ? 'Idle' : task.status === 'unknown' ? 'Unknown' : task.status.replaceAll('-', ' ');
+    return `${status}${task.attention ? ' · Needs your input' : ''}`;
 }
 
 function nativeStateText(state) {
@@ -321,23 +338,29 @@ export function mountTeamView(container, options) {
     guidePortrait.setAttribute('aria-hidden', 'true');
     guidePortrait.append(guideImage);
     const guideSummary = element('ul', 'pm-guide-summary');
-    const guideAttention = element('li', '', 'Opening task records…');
+    const guideAttention = element('li', '');
+    const guideAttentionText = element('span', 'pm-guide-summary-text', 'Opening task records…');
+    guideAttention.append(guideIcon('M6 3h12v18H6z M9 11l2 2 4-4'), guideAttentionText);
     const guideReady = element('li', '');
+    const guideReadyText = element('span', 'pm-guide-summary-text');
+    guideReady.append(guideIcon('M7 3h7l4 4v14H7z M14 3v5h4'), guideReadyText);
     guideReady.hidden = true;
     const guideUnobserved = element('li', '');
     guideUnobserved.hidden = true;
     const showUnobserved = action('Unobserved tasks', openUnobserved);
     showUnobserved.className = 'arcane-button arcane-button--tertiary pm-guide-unobserved';
     showUnobserved.setAttribute('aria-controls', 'pm-unobserved-tasks');
-    guideUnobserved.append(showUnobserved);
+    guideUnobserved.append(guideIcon('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6 M3 3l18 18'), showUnobserved);
     guideSummary.append(guideAttention, guideReady, guideUnobserved);
     const guideButton = action('Talk to your guide', openGuide);
     guideButton.classList.add('pm-guide-open');
+    guideButton.prepend(guideIcon('M21 11c0 4.4-4 8-9 8-1.2 0-2.4-.2-3.5-.6L3 21l1.5-5C3.5 14.6 3 12.9 3 11c0-4.4 4-8 9-8s9 3.6 9 8z'));
     guideButton.disabled = true;
     const guideAvailability = element('p', 'pm-guide-availability', projectId ? 'Opening project guide…' : 'Select a project to open its guide.');
     const preparation = action('Prepare locally', openLocalPreparation);
     preparation.className = 'arcane-button arcane-button--tertiary pm-guide-preparation';
-    guide.append(element('h2', '', 'Project guide'), element('p', 'pm-guide-subtitle', 'Coordinator · Local'), guidePortrait, element('h3', '', 'Let’s keep things moving.'), guideSummary, guideButton, guideAvailability, preparation);
+    const guideDivider = element('hr', 'pm-guide-divider');
+    guide.append(element('h2', '', 'Project guide'), element('p', 'pm-guide-subtitle', 'Coordinator · Local'), guidePortrait, element('h3', '', 'Let’s keep things moving.'), guideSummary, guideDivider, guideButton, guideAvailability, preparation);
     overview.append(board, guide);
     const completed = element('div', 'pm-completed-tasks');
     completed.hidden = true;
@@ -346,11 +369,9 @@ export function mountTeamView(container, options) {
     unobserved.hidden = true;
     const recentHandoffs = element('section', 'pm-recent-handoffs arcane-card');
     const handoffHeading = element('div', 'pm-recent-handoffs-heading');
-    const handoffCopy = element('div', '');
-    handoffCopy.append(element('h2', '', 'Recent handoffs'), element('p', 'pm-muted', 'Review saved handoffs and prepare the next step.'));
-    const viewHandoffs = action('View handoffs →', openHandoffs);
+    const viewHandoffs = action('View all handoffs →', openHandoffs);
     viewHandoffs.className = 'arcane-button arcane-button--tertiary';
-    handoffHeading.append(handoffCopy, viewHandoffs);
+    handoffHeading.append(element('h2', '', 'Recent handoffs'), viewHandoffs);
     const handoffStatus = element('p', 'pm-recent-handoffs-status', 'Opening saved handoffs…');
     handoffStatus.setAttribute('role', 'status');
     const handoffList = element('ol', 'pm-recent-handoff-list');
@@ -529,32 +550,49 @@ export function mountTeamView(container, options) {
 
     function renderRecentHandoff(record) {
         const row = element('li', 'pm-recent-handoff');
-        const pair = element('div', 'pm-handoff-task-pair');
-        pair.append(handoffTask(record.fromTaskId, 'From'), handoffTask(record.toTaskId, 'To'));
-        const status = element('p', 'pm-handoff-status', `Handoff status: ${record.status}`);
-        row.append(pair, status);
+        const from = handoffTask(record.fromTaskId);
+        const to = handoffTask(record.toTaskId);
+        const portraits = element('div', 'pm-handoff-portraits');
+        const portraitArrow = element('span', 'pm-handoff-arrow', '→');
+        portraitArrow.setAttribute('aria-hidden', 'true');
+        portraits.append(from.face, portraitArrow, to.face);
+        const copy = element('div', 'pm-handoff-copy');
+        const route = element('p', 'pm-handoff-route');
+        const routeArrow = element('span', 'pm-handoff-arrow', '→');
+        routeArrow.setAttribute('role', 'img');
+        routeArrow.setAttribute('aria-label', 'to');
+        route.append(from.name, routeArrow, to.name);
+        const metadata = element('div', 'pm-handoff-metadata');
+        const status = element('span', 'pm-handoff-status', record.status);
         const updated = element('time', 'pm-handoff-updated', record.updatedAt);
         updated.dateTime = record.updatedAt;
-        const open = action('Open handoff →', function openSavedHandoff() {
-            onNavigate('handoffs', {projectId: record.projectId, handoffId: record.id});
-        }, true);
-        row.append(updated, open);
+        metadata.append(status, updated);
+        copy.append(route, metadata);
+        const open = action('Open →', openSavedHandoff);
+        open.className = 'arcane-button arcane-button--tertiary pm-handoff-open';
+        open.setAttribute('aria-label', 'Open handoff');
+        row.append(portraits, copy, open);
         handoffList.append(row);
+
+        function openSavedHandoff() {
+            onNavigate(
+                'handoffs',
+                {projectId: record.projectId, handoffId: record.id}
+            );
+        }
     }
 
-    function handoffTask(id, label) {
-        const task = element('div', 'pm-handoff-task');
-        const face = element('div', 'pm-handoff-face pm-task-face', '◇');
+    function handoffTask(id) {
+        const face = element('div', 'pm-task-face pm-handoff-face', '◇');
         face.setAttribute('aria-hidden', 'true');
         const name = element('span', 'pm-handoff-title', id ? 'Opening task…' : 'Task not selected');
-        task.append(face, element('span', 'pm-handoff-task-label', label), name);
         if (id) {
             const portrait = createSavedPortrait(face, modelsReady, handoffSignal);
             handoffPortraits.add(portrait);
             if (!handoffTasks.has(id)) handoffTasks.set(id, []);
             handoffTasks.get(id).push({name, portrait});
         }
-        return task;
+        return {face, name};
     }
 
     async function openHandoffTask([id, presentations]) {
@@ -903,8 +941,8 @@ export function mountTeamView(container, options) {
         const unobservedCount = columns.get('unobserved').taskIds.length;
         if (tasksLoaded) {
             attentionText.textContent = `${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} your attention.`;
-            guideAttention.textContent = `${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} attention`;
-            guideReady.textContent = `${readyCount} ${readyCount === 1 ? 'task' : 'tasks'} ready next`;
+            guideAttentionText.textContent = `${attentionCount} ${attentionCount === 1 ? 'task needs' : 'tasks need'} attention`;
+            guideReadyText.textContent = `${readyCount} ${readyCount === 1 ? 'task' : 'tasks'} ready next`;
             guideReady.hidden = false;
             showUnobserved.textContent = `${unobservedCount} ${unobservedCount === 1 ? 'task' : 'tasks'} unobserved`;
         }
@@ -963,7 +1001,7 @@ export function mountTeamView(container, options) {
             notice.hidden = false;
             for (const id of columns.keys()) changedColumns.add(id);
             scheduleBoard();
-            if (!tasksLoaded) guideAttention.textContent = 'Task records are unavailable.';
+            if (!tasksLoaded) guideAttentionText.textContent = 'Task records are unavailable.';
         } finally {
             if (pendingScan === changes) pendingScan = null;
         }

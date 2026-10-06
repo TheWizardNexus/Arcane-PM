@@ -979,6 +979,30 @@ a.pm-task-title:hover {
     font-size: 1.05rem;
 }
 
+.pm-guide-summary > li {
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+}
+
+.pm-guide-icon {
+    flex: 0 0 1.65rem;
+    inline-size: 1.65rem;
+    block-size: 1.65rem;
+    color: var(--accent-color);
+}
+
+.pm-guide-summary-text {
+    min-inline-size: 0;
+}
+
+.pm-guide-divider {
+    inline-size: 100%;
+    margin: 0;
+    border: 0;
+    border-block-start: 1px solid var(--arcane-border);
+}
+
 .pm-guide-unobserved {
     justify-content: flex-start;
     min-block-size: 2.75rem;
@@ -998,6 +1022,10 @@ a.pm-task-title:hover {
     min-block-size: 3.375rem;
     margin-block-start: .35rem;
     font-size: 1.125rem;
+}
+
+.pm-guide-open .pm-guide-icon {
+    color: inherit;
 }
 
 .pm-guide-availability {
@@ -1056,8 +1084,7 @@ a.pm-task-title:hover {
     color: var(--accent-color);
 }
 
-.pm-recent-handoffs-heading,
-.pm-recent-handoffs .pm-handoff-task-pair {
+.pm-recent-handoffs-heading {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -1068,8 +1095,7 @@ a.pm-task-title:hover {
     justify-content: space-between;
 }
 
-.pm-recent-handoffs-status,
-.pm-recent-handoffs-heading p {
+.pm-recent-handoffs-status {
     font-size: .9rem;
     color: var(--arcane-muted);
 }
@@ -1084,61 +1110,69 @@ a.pm-task-title:hover {
 
 .pm-recent-handoff {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: .25rem 1rem;
-    padding-block: .5rem;
+    gap: .5rem 1.5rem;
+    padding-block: .25rem;
 }
 
 .pm-recent-handoff + .pm-recent-handoff {
     border-block-start: 1px solid var(--arcane-border);
 }
 
-.pm-recent-handoffs .pm-handoff-task-pair {
-    grid-column: 1;
-    grid-row: 1 / 3;
-}
-
-.pm-recent-handoffs .pm-handoff-task {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: .1rem .6rem;
+.pm-handoff-portraits {
+    display: flex;
     align-items: center;
-    min-inline-size: 0;
+    gap: .85rem;
 }
 
 .pm-recent-handoffs .pm-handoff-face {
-    grid-row: 1 / 3;
-    inline-size: 3.5rem;
-    block-size: 3.5rem;
+    flex: 0 0 4rem;
+    inline-size: 4rem;
+    block-size: 4rem;
     overflow: hidden;
 }
 
 .pm-recent-handoffs .pm-handoff-face > img {
     border-radius: 50%;
-    object-fit: cover;
+    object-fit: contain;
 }
 
-.pm-recent-handoffs .pm-handoff-task-label {
-    font-size: .75rem;
+.pm-handoff-arrow {
+    flex: none;
+    font-size: 1.5rem;
     color: var(--arcane-muted);
 }
 
-.pm-recent-handoffs .pm-handoff-title {
-    grid-column: 2;
+.pm-handoff-copy {
+    display: grid;
+    gap: .15rem;
+    min-inline-size: 0;
+}
+
+.pm-handoff-route,
+.pm-handoff-metadata {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: .2rem .6rem;
+}
+
+.pm-handoff-route {
     font-size: 1.1rem;
 }
 
-.pm-recent-handoffs .pm-handoff-status,
-.pm-recent-handoffs .pm-handoff-updated {
-    grid-column: 1;
+.pm-handoff-route .pm-handoff-arrow {
+    font-size: 1rem;
+}
+
+.pm-handoff-metadata {
     font-size: .85rem;
     color: var(--arcane-muted);
 }
 
-.pm-recent-handoff > button {
-    grid-column: 2;
-    grid-row: 1 / 5;
+.pm-recent-handoff > .pm-handoff-open {
+    white-space: nowrap;
 }
 
 /* Records and forms expose complete content in the owning page. */
@@ -1274,6 +1308,10 @@ a.pm-task-title:hover {
         grid-column: 2;
         grid-row: 1 / 5;
     }
+
+    .pm-guide-divider {
+        grid-column: 1 / -1;
+    }
 }
 
 @media (max-width: 64rem) {
@@ -1380,8 +1418,11 @@ a.pm-task-title:hover {
     }
 
     .pm-recent-handoff > button {
-        grid-column: 1;
-        grid-row: auto;
+        justify-self: start;
+    }
+
+    .pm-handoff-portraits {
+        gap: .6rem;
     }
 
     .pm-navigation {
