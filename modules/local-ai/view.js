@@ -178,7 +178,7 @@ export function mountLocalAIView(container, {
         controls.prepare.disabled = !localAI || !selectedModel || selectedModel.state === 'unavailable' || Boolean(preparation);
         controls['cancel-prepare'].disabled = !preparation;
         controls['select-model'].disabled = !modelServices || modelBusy;
-        controls['load-model'].disabled = !selectedModel || modelBusy || selectedModel.loaded || selectedModel.providerId === 'OLLAMA';
+        controls['load-model'].disabled = !selectedModel || modelBusy || selectedModel.loaded;
         controls['unload-model'].disabled = !selectedModel || modelBusy;
         controls['refresh-models'].disabled = modelBusy;
         controls['image-file'].disabled = !hasTask || !faces;
@@ -220,8 +220,6 @@ export function mountLocalAIView(container, {
         const model = snapshot.model;
         if (!model) {
             status(controls['model-status'], 'No model selected.');
-        } else if (model.providerId === 'OLLAMA') {
-            status(controls['model-status'], `${model.modelId} · Ollama preparation is unavailable until its loaded-model lifecycle is supported.`, 'unavailable');
         } else if (model.error) {
             status(controls['model-status'], `${model.modelId} could not become ready. Review the selection and try loading again.`, 'error');
         } else {
@@ -230,11 +228,9 @@ export function mountLocalAIView(container, {
         }
         controls.prepare.textContent = model?.localOnly === false ? 'Prepare with remote model' : 'Prepare with model';
         controls['load-model'].textContent = model?.localOnly === false ? 'Activate remote model' : 'Load selected model';
-        controls['model-hint'].textContent = model?.providerId === 'OLLAMA' && !model.loaded
-            ? 'Choose another provider for preparation. Your tasks and manual notes remain available.'
-            : !snapshot.core
-                ? 'Native models need Arcane Core. Browser model use requires a model already stored in this app.'
-                : 'Project browsing and local search remain available while a model loads.';
+        controls['model-hint'].textContent = !snapshot.core
+            ? 'Native models need Arcane Core. Browser model use requires a model already stored in this app.'
+            : 'Project browsing and local search remain available while a model loads.';
         updateControls();
     }
 
@@ -451,10 +447,7 @@ export function mountLocalAIView(container, {
             await action();
             if (!pageSignal.aborted) renderModels(modelServices.current());
         } catch (error) {
-            const message = error?.code === 'PM_OLLAMA_LIFECYCLE_UNAVAILABLE'
-                ? 'Ollama preparation is unavailable until its loaded-model lifecycle is supported. Choose another provider.'
-                : 'The selected model could not be prepared. Review the model and local runtime, then try again.';
-            reportFailure(controls['model-status'], message, error);
+            reportFailure(controls['model-status'], 'The selected model could not be prepared. Review the model and local runtime, then try again.', error);
         } finally {
             modelBusy = false;
             if (!pageSignal.aborted) updateControls();

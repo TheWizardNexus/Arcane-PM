@@ -25,6 +25,21 @@ request signals and subscriptions. Application disposal joins preparation/face
 cleanup before closing SDK accessors owned by this composition. The lower-level
 exports are `createPMModelServices` and `createLocalPreparationController`.
 
+`modules/local-ai/core-service.mjs` is the native service factory for observing
+an existing local provider through the published `createLocalAIService` owner.
+Its selected descriptor options are `{runtimes: ['ollama']}`. The SDK uses its
+documented default Ollama address and reports the actual catalog and residency.
+This factory supplies no installer, preparation callback or runtime executable;
+an absent daemon therefore stays unavailable. It neither acquires models nor
+starts a replacement process. Foundation owns descriptor composition and the
+shared development server lifecycle.
+
+An externally owned daemon can report `installed: false` and `available: true`
+because PM supplied no executable. Readiness follows the actual provider state,
+not that installation field. If the daemon was absent when the service started,
+the published `localai.services.recover({runtimes: ['ollama']})` operation owns
+an explicit reconnection attempt; reading status alone does not restart it.
+
 ## Preparation
 
 `createLocalPreparationController({modelServices, getStorage, tools = [],
@@ -107,6 +122,12 @@ Browser text loading uses an explicit SDK source descriptor with complete
 importer or alternative fetch path is invented for the published source API.
 Image original selection is independent of this model-source contract.
 
+The published `0.65.0` image and ONNX accessors retain the Core client supplied
+at construction. Their attachment after a later Core installation or replacement
+remains an SDK-owner follow-through item. The current descriptor selects no image
+runtime, so image generation remains unavailable; imported originals and
+deliberate face selection continue through their existing storage owner.
+
 ## Faces
 
 `createTaskFaceController({imageRuntime,data,getStorage,signal})` is exported
@@ -131,12 +152,24 @@ or exact prompt adherence.
 ## Published SDK and delivery boundaries
 
 Foundation owns installation, import maps and the shared preview. Initial
-implementation and browser evidence used `arcane-os@0.62.0`; the installed
-package inspected for the decision-model mapping below is `0.64.0`. The
-development declaration tracks `latest` through the foundation owner.
-Browser-WASM and Core llama.cpp expose local text routes. Ollama
-capability/catalog presence alone is not proof of an actually loaded model.
-Its exact lifecycle correction remains with the SDK owner.
+implementation and browser evidence used `arcane-os@0.62.0`; the decision-model
+mapping below was inspected at `0.64.0`. The selected Ollama integration consumes
+the published `0.65.0` contract. The development declaration tracks `latest`
+through the foundation owner.
+Browser-WASM, Core llama.cpp and the built-in Ollama provider expose local text
+routes. Ollama capability/catalog presence alone is not proof of an actually
+loaded model. PM consumes the SDK provider's selected ready/loaded lifecycle;
+the SDK owns preload, resident-model name comparison, observed readiness loss,
+and cancellation through Core. It checks residency before inference and before
+accepting the terminal result while forwarding actual stream chunks immediately.
+Outbound model names and complete prompts remain unchanged.
+
+Ollama supplies resident snapshots rather than an ongoing external-eviction
+subscription. The SDK adds no periodic polling and makes no atomic-residency
+promise. PM's preparation controller retains its exact selection observer
+through the request, cancels on selection or readiness loss, and publishes
+`Thinking` before its first wait. See the published
+[selected Ollama readiness contract](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.65.0/docs/reference/local-ai.md#selected-ollama-model-readiness).
 
 An earlier API inventory omitted the published browser typed-decision pipeline.
 `createBrowserDecisionModel` supports Laya/Julia state/question/options
