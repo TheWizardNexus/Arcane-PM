@@ -576,7 +576,7 @@
     "schemaVersion": 1,
     "appId": "arcane-pm",
     "appVersion": "0.1.0",
-    "sdkVersion": "0.71.1",
+    "sdkVersion": "0.75.0",
     "revision": "development",
     "mode": "development",
     "assets": [
@@ -652,6 +652,7 @@
         "/node_modules/arcane-os/browser-runtime/ai/decision-runtime.mjs",
         "/node_modules/arcane-os/browser-runtime/ai/decision-worker.mjs",
         "/node_modules/arcane-os/browser-runtime/ai/digitalocean-speech.mjs",
+        "/node_modules/arcane-os/browser-runtime/ai/kokoro-complete-input.mjs",
         "/node_modules/arcane-os/browser-runtime/ai/model-controller.mjs",
         "/node_modules/arcane-os/browser-runtime/ai/model-resource-bridge.mjs",
         "/node_modules/arcane-os/browser-runtime/ai/onnx-tensors.mjs",

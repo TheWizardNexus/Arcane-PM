@@ -54,7 +54,8 @@
               "height": 1024
             },
             "operations": [
-              "txt2img"
+              "txt2img",
+              "img2img"
             ]
           }
         ]
