@@ -921,9 +921,9 @@ a.pm-task-title:hover {
     display: grid;
     align-content: start;
     justify-items: start;
-    gap: 1.1rem;
+    gap: .7rem;
     min-inline-size: 0;
-    padding: 1rem 1.2rem 1.4rem;
+    padding: 1rem 1.2rem;
     border: 1px solid var(--arcane-border);
     border-radius: var(--arcane-radius-large);
     box-shadow: none;
@@ -935,15 +935,15 @@ a.pm-task-title:hover {
 }
 
 .pm-guide-subtitle {
-    margin-block-start: -.7rem;
+    margin-block-start: -.3rem;
     font-size: 1.05rem;
 }
 
 .pm-guide-portrait {
     position: relative;
     justify-self: center;
-    inline-size: 10.75rem;
-    block-size: 10.75rem;
+    inline-size: 9.5rem;
+    block-size: 9.5rem;
     max-inline-size: 100%;
     border-radius: 50%;
     overflow: hidden;
@@ -972,7 +972,7 @@ a.pm-task-title:hover {
 
 .pm-guide-summary {
     display: grid;
-    gap: .75rem;
+    gap: .5rem;
     padding: 0;
     margin: 0;
     list-style: none;
@@ -1020,7 +1020,7 @@ a.pm-task-title:hover {
 .pm-guide-open {
     inline-size: 100%;
     min-block-size: 3.375rem;
-    margin-block-start: .35rem;
+    margin-block-start: 0;
     font-size: 1.125rem;
 }
 
@@ -1061,8 +1061,8 @@ a.pm-task-title:hover {
 
 .pm-recent-handoffs {
     display: grid;
-    gap: .5rem;
-    padding: .85rem 1.1rem;
+    gap: .25rem;
+    padding: .6rem 1.1rem;
     border: 1px solid var(--arcane-border);
     border-radius: var(--arcane-radius-medium);
 }
