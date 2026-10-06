@@ -24,6 +24,13 @@ const GRANITE_MODEL = {
         }
     ]
 };
+const OLLAMA_LANGUAGE_MODELS = [
+    {id: 'granite4.2:3b-q4_K_M', name: 'Granite 4.2 3B · Q4_K_M'},
+    {id: 'granite4.2:8b-q4_K_M', name: 'Granite 4.2 8B · Q4_K_M'},
+    {id: 'granite4.2:30b-q4_K_M', name: 'Granite 4.2 30B · Q4_K_M'},
+    {id: 'gpt-oss:20b', name: 'GPT-OSS 20B · MXFP4'},
+    {id: 'muse-glimmer:30b-q4_K_M', name: 'Meta Muse Glimmer 30B · Q4_K_M'}
+];
 
 function serviceError(code, message) {
     const error = new Error(message);
@@ -79,6 +86,13 @@ export function createPMModelServices(
     let cancelLoad = null;
     let imageLoad = null;
     let imageLoadState = {modelId: null, phase: 'idle', busy: false, error: null};
+    let avatarPreparation = null;
+    let preferredModel = null;
+    let preferenceState = 'pending';
+    let preferenceError = null;
+    let preferenceRead = null;
+    let preferenceWrite = Promise.resolve();
+    let languageDownload = null;
     let closing = null;
     const projections = new Set();
 
@@ -113,16 +127,31 @@ export function createPMModelServices(
     function catalog() {
         const result = [];
         for (const record of coreState?.runtimes ?? []) {
-            if (record.id === 'llama.cpp' || record.id === 'ollama') {
+            if (record.id === 'llama.cpp') {
                 result.push(
                     {
-                        providerId: record.id === 'ollama' ? 'OLLAMA' : record.id,
+                        providerId: record.id,
                         localOnly: true,
                         models: record.models ?? []
                     }
                 );
             }
         }
+        const installedOllama = runtimeRecord('ollama')?.models ?? [];
+        const ollamaModels = OLLAMA_LANGUAGE_MODELS.map(
+            function selectableOllamaModel(model) {
+                const installed = installedOllama.find(
+                    function matchingInstalledModel(record) { return record.id === model.id; }
+                );
+                return {...installed, ...model, localOnly: true};
+            }
+        );
+        for (const installed of installedOllama) {
+            if (!ollamaModels.some(function knownOllamaModel(model) { return model.id === installed.id; })) {
+                ollamaModels.push(installed);
+            }
+        }
+        result.push({providerId: 'OLLAMA', localOnly: true, models: ollamaModels});
         const browserModels = browserProvider?.catalog() ?? [];
         const granite = browserModels.find(function matchesGranite(model) {
             return model.id === GRANITE_MODEL.id;
@@ -175,15 +204,70 @@ export function createPMModelServices(
                 state,
                 loaded,
                 busy: selecting || loading || underlying?.busy === true,
-                progress: underlying?.progress ?? null,
+                progress: languageDownload?.progress ?? underlying?.progress ?? null,
+                progressKind: languageDownload ? 'ollama' : 'sdk',
+                progressPhase: languageDownload ? 'download' : underlying?.progress?.phase ?? null,
                 error: selectedError ?? (native ? coreError : null) ?? underlying?.error ?? null,
                 ...(native ? {nativeLoaded: currentNativeClient && nativeLoaded} : {})
             };
         }
         return {
             model, imageLoad: {...imageLoadState}, catalog: catalog(),
+            preferredModel, preferenceState, preferenceError,
             core: coreState, coreError, retiredModelCleanup, closed
         };
+    }
+
+    function ready() {
+        assertOpen();
+        if (!preferenceRead) {
+            const revision = selectionRevision;
+            preferenceRead = Promise.resolve().then(
+                async function readLanguageModelPreference() {
+                    const storage = await getStorage();
+                    const saved = await storage.get('pm_local_ai_settings', 'language-model.json', true);
+                    assertOpen();
+                    if (revision === selectionRevision && saved) preferredModel = saved;
+                    preferenceState = 'ready';
+                    preferenceError = null;
+                    publish();
+                    return preferredModel;
+                }
+            ).catch(
+                function languageModelPreferenceUnavailable(error) {
+                    preferenceState = 'error';
+                    preferenceError = error;
+                    preferenceRead = null;
+                    publish();
+                    throw error;
+                }
+            );
+        }
+        return preferenceRead;
+    }
+
+    async function saveLanguageModelPreference() {
+        const value = {providerId: selection.providerId, modelId: selection.modelId};
+        preferredModel = value;
+        preferenceWrite = preferenceWrite.catch(
+            function previousPreferenceWriteFailed(error) {
+                console.error('Arcane PM could not save an earlier language model choice.', error);
+            }
+        ).then(
+            async function writeLanguageModelPreference() {
+                const storage = await getStorage();
+                await storage.set('pm_local_ai_settings', 'language-model.json', value);
+            }
+        );
+        try {
+            await preferenceWrite;
+            preferenceState = 'ready';
+            preferenceError = null;
+        } catch (error) {
+            preferenceState = 'error';
+            preferenceError = error;
+            throw error;
+        }
     }
 
     function publish() {
@@ -368,7 +452,7 @@ export function createPMModelServices(
         currentSignal.throwIfAborted();
     }
 
-    async function select(value, {signal: requestSignal} = {}) {
+    async function select(value, {signal: requestSignal, persist = true} = {}) {
         assertOpen();
         if (selecting) {
             throw serviceError('PM_MODEL_SELECTION_BUSY', 'A model selection is already changing.');
@@ -440,6 +524,13 @@ export function createPMModelServices(
                     await inspect(
                         {signal: currentSignal}
                     );
+                }
+            }
+            if (persist) {
+                try {
+                    await saveLanguageModelPreference();
+                } catch (error) {
+                    console.error('Arcane PM could not save the selected language model.', error);
                 }
             }
         } catch (error) {
@@ -532,6 +623,7 @@ export function createPMModelServices(
                     {offline, gpuLayers: 0, signal: currentSignal}
                 );
             } else {
+                if (selected.providerId === 'OLLAMA') await acquireSelectedOllamaModel(selected, loadClient, currentSignal, offline);
                 if (!activeAI) await configureRoutedAI(selected, currentSignal);
                 await providerRuntime.load(
                     'llm',
@@ -558,6 +650,44 @@ export function createPMModelServices(
             publish();
         }
         return getStatus();
+    }
+
+    async function acquireSelectedOllamaModel(selected, selectedClient, currentSignal, offline) {
+        const published = OLLAMA_LANGUAGE_MODELS.some(
+            function requestedLanguageModel(model) { return model.id === selected.modelId; }
+        );
+        if (!published) return;
+        await inspect({signal: currentSignal});
+        const installed = runtimeRecord('ollama')?.models?.some(
+            function selectedModelInstalled(model) { return model.id === selected.modelId; }
+        );
+        if (installed) return;
+        if (offline) {
+            throw serviceError('PM_LANGUAGE_MODEL_NOT_CACHED', 'This language model needs its first download before offline loading.');
+        }
+        const operation = {modelId: selected.modelId, streamId: crypto.randomUUID(), progress: null};
+        languageDownload = operation;
+        const stop = selectedClient.events.on(
+            'ollama.chunk',
+            function selectedLanguageModelProgress(value) {
+                if (languageDownload !== operation || value.streamId !== operation.streamId || currentSignal.aborted) return;
+                operation.progress = value.chunk;
+                publish();
+            }
+        );
+        publish();
+        try {
+            await selectedClient.invoke(
+                'ollama.pull',
+                {model: selected.modelId, stream: true, streamId: operation.streamId},
+                {signal: currentSignal, timeoutMs: 0}
+            );
+            currentSignal.throwIfAborted();
+        } finally {
+            stop();
+            if (languageDownload === operation) languageDownload = null;
+            publish();
+        }
     }
 
     async function unload({signal: requestSignal} = {}) {
@@ -614,7 +744,7 @@ export function createPMModelServices(
             task: null
         };
         imageLoad = operation;
-        imageLoadState = {modelId, phase: 'preparing', busy: true, error: null};
+        imageLoadState = {modelId, phase: 'preparing', busy: true, progress: null, error: null};
         operation.task = Promise.resolve().then(
             function beginImageModelLoad() {
                 return prepareAndLoadImage(operation, offline);
@@ -658,14 +788,21 @@ export function createPMModelServices(
                     })
                 };
                 projection = await prepareModelAssets(
-                    {source, workingDirectory: '.arcane/model-working', offline, signal: operation.signal}
+                    {
+                        source, workingDirectory: '.arcane/model-working', offline, signal: operation.signal,
+                        onProgress: function imageAssetsProgress(progress) {
+                            if (imageLoad !== operation || operation.signal.aborted) return;
+                            imageLoadState = {...imageLoadState, progress};
+                            publish();
+                        }
+                    }
                 );
                 resourcePaths = Object.fromEntries(resources.map(function resourceRole(entry) {
                     return [entry[0], entry[1].filename];
                 }));
             }
             operation.signal.throwIfAborted();
-            imageLoadState = {...imageLoadState, phase: 'loading'};
+            imageLoadState = {...imageLoadState, phase: 'loading', progress: null};
             publish();
             result = await runtime.load({
                 model: model.id,
@@ -691,6 +828,7 @@ export function createPMModelServices(
                 modelId: operation.modelId,
                 phase: failure ? operation.signal.aborted ? 'cancelled' : 'error' : 'ready',
                 busy: false,
+                progress: null,
                 error: failure
             };
             publish();
@@ -736,6 +874,101 @@ export function createPMModelServices(
         projections.delete(projection);
     }
 
+    function prepareAvatarModels({signal: requestSignal} = {}) {
+        assertOpen();
+        requestSignal?.throwIfAborted();
+        if (!avatarPreparation) {
+            const preparations = [prepareAvatarText(), prepareAvatarImage()];
+            const preparation = Promise.all(preparations);
+            avatarPreparation = preparation;
+            Promise.allSettled(preparations).then(
+                function finishAvatarModelPreparation() {
+                    if (avatarPreparation === preparation) avatarPreparation = null;
+                }
+            );
+            avatarPreparation.catch(
+                function reportAvatarModelPreparation(error) {
+                    if (!lifetimeSignal.aborted) console.error('Arcane PM portrait models could not become ready.', error);
+                }
+            );
+        }
+        if (!requestSignal) return avatarPreparation;
+        const currentPreparation = avatarPreparation;
+        return new Promise(
+            function observeAvatarModelPreparation(resolve, reject) {
+                function cancelled() {
+                    requestSignal.removeEventListener('abort', cancelled);
+                    reject(requestSignal.reason);
+                }
+                requestSignal.addEventListener('abort', cancelled, {once: true});
+                currentPreparation.then(
+                    function prepared(result) {
+                        requestSignal.removeEventListener('abort', cancelled);
+                        resolve(result);
+                    },
+                    function preparationFailed(error) {
+                        requestSignal.removeEventListener('abort', cancelled);
+                        reject(error);
+                    }
+                );
+                if (requestSignal.aborted) cancelled();
+            }
+        );
+    }
+
+    async function prepareAvatarText() {
+        await ready();
+        assertOpen();
+        if (selecting) await selectionSettled;
+        assertOpen();
+        if (!selection) {
+            await select(
+                preferredModel ?? {providerId: BROWSER_PROVIDER, modelId: GRANITE_MODEL.id},
+                {signal: lifetimeSignal, persist: false}
+            );
+        }
+        if (selection.localOnly !== true) {
+            throw serviceError('PM_AVATAR_LOCAL_MODEL_REQUIRED', 'Choose a local language model to prepare portraits.');
+        }
+        if (loading) await loadSettled;
+        assertOpen();
+        if (getStatus().model?.loaded !== true) await load({offline: false, signal: lifetimeSignal});
+    }
+
+    async function prepareAvatarImage() {
+        const runtime = getImageRuntime();
+        await new Promise(
+            function waitForImageCatalog(resolve, reject) {
+                let stop = null;
+                let finished = false;
+                function finish(error) {
+                    if (finished) return;
+                    finished = true;
+                    stop?.();
+                    lifetimeSignal.removeEventListener('abort', cancelled);
+                    if (error) reject(error);
+                    else resolve();
+                }
+                function cancelled() { finish(lifetimeSignal.reason); }
+                function imageCatalogChanged(snapshot) {
+                    if (snapshot.models?.length) finish();
+                    else if (snapshot.error) finish(snapshot.error);
+                }
+                lifetimeSignal.addEventListener('abort', cancelled, {once: true});
+                stop = runtime.subscribe(imageCatalogChanged, {signal: lifetimeSignal});
+                if (finished) stop();
+                if (lifetimeSignal.aborted) cancelled();
+            }
+        );
+        assertOpen();
+        if (imageLoad) await imageLoad.task;
+        const snapshot = runtime.current();
+        if (snapshot.loaded === true) return;
+        await loadImage(
+            {model: snapshot.selectedModel ?? 'sdxl-base-1.0', offline: false, signal: lifetimeSignal}
+        );
+    }
+
     function dispose() {
         if (closing) {
             return closing;
@@ -750,6 +983,7 @@ export function createPMModelServices(
         closing = Promise.resolve().then(
             async function releasePMModelServices() {
                 await selectionSettled;
+                await Promise.allSettled([avatarPreparation, preferenceRead, preferenceWrite]);
                 if (loading) await loadSettled;
                 // The load owner reports failures and releases its own projection.
                 if (imageLoad) await Promise.allSettled([imageLoad.task]);
@@ -825,6 +1059,7 @@ export function createPMModelServices(
         subscribe,
         inspect,
         catalog,
+        ready,
         select,
         load,
         unload,
@@ -832,6 +1067,7 @@ export function createPMModelServices(
         getModelStore,
         getImageRuntime,
         loadImage,
+        prepareAvatarModels,
         prepareModelAssets,
         releaseModelAssets,
         prepareImageAssets: prepareModelAssets,

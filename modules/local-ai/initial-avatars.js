@@ -3,7 +3,7 @@ import {createLocalPreparationController} from './preparation.js';
 
 /** Derive a first avatar from real work through the selected local model owners. */
 export function createInitialAvatarPreparation(
-    {modelServices, faces, data, getStorage, getSources, acquireRequest, signal} = {}
+    {modelServices, faces, data, getStorage, getSources, getWorkflows, acquireRequest, signal} = {}
 ) {
     const lifetime = new AbortController();
     const lifetimeSignal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
@@ -16,10 +16,12 @@ export function createInitialAvatarPreparation(
     const states = new Map();
     const revisions = new Map();
     const pending = new Set();
-    const taskPreparations = [];
-    let activeTaskPreparations = 0;
+    const workPreparations = [];
+    let activeWorkPreparations = 0;
     let sourcesOpening = null;
     let stopSources = null;
+    let workflowsOpening = null;
+    let stopWorkflows = null;
     let closed = false;
     let closing = null;
 
@@ -118,13 +120,14 @@ export function createInitialAvatarPreparation(
                 subjectType, subjectId, projectId: subjectType === 'project' ? subjectId : previous?.projectId ?? null,
                 authoredFieldRevisions: previous?.authoredFieldRevisions,
                 projectDescriptionRevision: previous?.projectDescriptionRevision,
+                workTaskIds: previous?.workTaskIds,
                 revision, status: 'Thinking', message: 'Thinking', faceId: null
             },
             source: null,
             sourceOrigin: null,
-            conversationSources: null,
+            work: null,
             acquiringSources: false,
-            releaseTaskPreparation: null,
+            releaseWorkPreparation: null,
             preparation: null,
             descriptionPending: true,
             imageRequested: false,
@@ -233,14 +236,18 @@ export function createInitialAvatarPreparation(
                     projectPurpose: project?.description ?? ''
                 };
             }
+            setStatus(job, 'pending', 'Preparing the local avatar models.');
+            assertCurrent(job);
+            await modelServices.prepareAvatarModels(
+                {signal: job.signal}
+            );
+            assertCurrent(job);
             const selected = await waitForModels(job);
             assertCurrent(job);
-            if (job.state.subjectType === 'task') {
-                job.releaseTaskPreparation = await acquireTaskPreparation(job);
-                assertCurrent(job);
-                await readConversationSources(job);
-                assertCurrent(job);
-            }
+            job.releaseWorkPreparation = await acquireWorkPreparation(job);
+            assertCurrent(job);
+            await readWorkContext(job);
+            assertCurrent(job);
             job.preparation = createLocalPreparationController(
                 {
                     modelServices, getStorage, tools: [], acquireRequest,
@@ -257,9 +264,13 @@ export function createInitialAvatarPreparation(
             );
             assertCurrent(job);
             job.descriptionPending = false;
-            job.conversationSources = null;
-            job.releaseTaskPreparation?.();
-            job.releaseTaskPreparation = null;
+            for (const entry of job.work.tasks) {
+                entry.sources = [];
+                entry.history = [];
+            }
+            job.work.projectSources = [];
+            job.releaseWorkPreparation?.();
+            job.releaseWorkPreparation = null;
             job.stopText?.();
             job.stopText = null;
             if (typeof description.content !== 'string' || !description.content.trim()) {
@@ -306,10 +317,10 @@ export function createInitialAvatarPreparation(
                 job, cancelled ? 'cancelled' : 'error',
                 cancelled ? 'Avatar preparation stopped.'
                     : error?.code === 'PM_AVATAR_NATIVE_ASSOCIATION_UNAVAILABLE'
-                        ? 'Reconnect this task to its native conversation before preparing its avatar.'
+                        ? 'Reconnect the task conversations before preparing this avatar.'
                         : error?.code === 'PM_AVATAR_SOURCES_UNAVAILABLE'
-                            ? 'The task conversation could not be read completely. Refresh its sources and try again.'
-                            : 'The avatar could not be prepared. Review the selected models and try again.'
+                            ? 'The complete work sources could not be read. Refresh the sources and try again.'
+                            : 'The avatar could not be prepared. Review Local preparation and try again.'
             );
             throw error;
         } finally {
@@ -317,9 +328,9 @@ export function createInitialAvatarPreparation(
             job.preparation = null;
             job.source = null;
             job.sourceOrigin = null;
-            job.conversationSources = null;
-            job.releaseTaskPreparation?.();
-            job.releaseTaskPreparation = null;
+            job.work = null;
+            job.releaseWorkPreparation?.();
+            job.releaseWorkPreparation = null;
             job.stopImage?.();
             job.stopImage = null;
             job.stopText?.();
@@ -332,38 +343,38 @@ export function createInitialAvatarPreparation(
         }
     }
 
-    function acquireTaskPreparation(job) {
-        setStatus(job, 'pending', 'Waiting to prepare the task avatar.');
+    function acquireWorkPreparation(job) {
+        setStatus(job, 'pending', 'Waiting to prepare the avatar.');
         assertCurrent(job);
         return new Promise(
-            function queueTaskPreparation(resolve, reject) {
+            function queueWorkPreparation(resolve, reject) {
                 const entry = {job, resolve, aborted};
                 function aborted() {
-                    const index = taskPreparations.indexOf(entry);
-                    if (index !== -1) taskPreparations.splice(index, 1);
+                    const index = workPreparations.indexOf(entry);
+                    if (index !== -1) workPreparations.splice(index, 1);
                     job.signal.removeEventListener('abort', aborted);
                     reject(job.signal.reason);
                 }
-                taskPreparations.push(entry);
+                workPreparations.push(entry);
                 job.signal.addEventListener('abort', aborted, {once: true});
                 if (job.signal.aborted) aborted();
-                startTaskPreparations();
+                startWorkPreparations();
             }
         );
     }
 
-    function startTaskPreparations() {
-        while (!closed && activeTaskPreparations < 4 && taskPreparations.length) {
-            const entry = taskPreparations.shift();
+    function startWorkPreparations() {
+        while (!closed && activeWorkPreparations < 4 && workPreparations.length) {
+            const entry = workPreparations.shift();
             entry.job.signal.removeEventListener('abort', entry.aborted);
-            activeTaskPreparations += 1;
+            activeWorkPreparations += 1;
             let released = false;
             entry.resolve(
-                function releaseTaskPreparation() {
+                function releaseWorkPreparation() {
                     if (released) return;
                     released = true;
-                    activeTaskPreparations -= 1;
-                    startTaskPreparations();
+                    activeWorkPreparations -= 1;
+                    startWorkPreparations();
                 }
             );
         }
@@ -414,78 +425,132 @@ export function createInitialAvatarPreparation(
         );
     }
 
-    async function readConversationSources(job) {
-        setStatus(job, 'pending', 'Reading the retained task conversation.');
-        try {
-            assertCurrent(job);
-            const sources = await resolveSources(job);
-            assertCurrent(job);
-            job.acquiringSources = true;
-            const origin = job.sourceOrigin;
-            if (origin?.provider === 'codex') {
-                const associated = ['accountId', 'hostId', 'threadId'].every(
-                    function nativeAssociationField(field) {
-                        return typeof origin[field] === 'string' && origin[field].trim();
+    function resolveWorkflows(job) {
+        if (!workflowsOpening) {
+            workflowsOpening = Promise.resolve().then(
+                function openAvatarWorkflows() {
+                    lifetimeSignal.throwIfAborted();
+                    return getWorkflows();
+                }
+            ).then(
+                function observeAvatarWorkflows(workflows) {
+                    lifetimeSignal.throwIfAborted();
+                    stopWorkflows = workflows.subscribe(
+                        workflowsChanged, {signal: lifetimeSignal}
+                    );
+                    return workflows;
+                }
+            ).catch(
+                function workflowOwnerFailed(error) {
+                    workflowsOpening = null;
+                    throw error;
+                }
+            );
+        }
+        return new Promise(
+            function awaitAvatarWorkflowOwner(resolve, reject) {
+                function aborted() {
+                    job.signal.removeEventListener('abort', aborted);
+                    reject(job.signal.reason);
+                }
+                job.signal.addEventListener('abort', aborted, {once: true});
+                if (job.signal.aborted) aborted();
+                workflowsOpening.then(
+                    function workflowOwnerReady(workflows) {
+                        job.signal.removeEventListener('abort', aborted);
+                        resolve(workflows);
+                    },
+                    function workflowOwnerUnavailable(error) {
+                        job.signal.removeEventListener('abort', aborted);
+                        reject(error);
                     }
                 );
-                if (!associated) {
-                    const error = new Error('The native task association requires its account, host and thread.');
-                    error.code = 'PM_AVATAR_NATIVE_ASSOCIATION_UNAVAILABLE';
-                    error.diagnostics = {origin};
-                    throw error;
-                }
-                const imported = await sources.importConversation(job.state.subjectId, {signal: job.signal});
-                assertCurrent(job);
-                if (imported.coverage?.complete !== true) {
-                    const error = new Error('The native task conversation could not be retained completely.');
-                    error.diagnostics = {failures: imported.failures, coverage: imported.coverage};
-                    throw error;
-                }
             }
-            let result;
+        );
+    }
+
+    async function readWorkContext(job) {
+        setStatus(job, 'pending', 'Reading the complete work and retained sources.');
+        try {
+            assertCurrent(job);
+            job.acquiringSources = true;
+            const [sources, workflows] = await Promise.all(
+                [resolveSources(job), resolveWorkflows(job)]
+            );
+            assertCurrent(job);
+            const importedOrigins = new Map();
             let revision;
             do {
                 revision = job.state.revision;
-                result = await sources.readTaskSources(
-                    job.state.subjectId, {signal: job.signal, kind: 'conversation'}
-                );
-                assertCurrent(job);
-                if (revision !== job.state.revision && !result.complete) {
-                    console.error(
-                        'A superseded task conversation snapshot could not be read completely.',
-                        {unavailableIds: result.unavailableIds, failures: result.failures, coverage: result.coverage}
+                try {
+                    const options = {signal: job.signal};
+                    const taskEntries = job.state.subjectType === 'project'
+                        ? (await workflows.getProjectOverview(job.state.subjectId, options)).tasks
+                        : [await workflows.getTaskOverview(job.state.subjectId, options)];
+                    assertCurrent(job);
+                    if (taskEntries.some(function missingTask(entry) { return !entry.task; })
+                        || (job.state.subjectType === 'task' && !taskEntries.length)) {
+                        throw cancellation('The task is no longer part of this work.');
+                    }
+                    job.work = {
+                        tasks: taskEntries.map(
+                            function taskWork(entry) {
+                                return {task: entry.task, history: entry.workflow.history, sources: []};
+                            }
+                        ),
+                        projectSources: []
+                    };
+                    retainMetadata(
+                        job.state,
+                        {workTaskIds: job.work.tasks.map(function taskIdentity(entry) { return entry.task.id; })}
                     );
+                    for (let start = 0; start < job.work.tasks.length; start += 4) {
+                        const outcomes = await Promise.allSettled(
+                            job.work.tasks.slice(start, start + 4).map(
+                                function readMemberWork(entry) {
+                                    return readTaskWorkSources(job, sources, entry, importedOrigins);
+                                }
+                            )
+                        );
+                        assertCurrent(job);
+                        const failures = outcomes.filter(
+                            function failedMember(outcome) { return outcome.status === 'rejected'; }
+                        ).map(
+                            function memberError(outcome) { return outcome.reason; }
+                        );
+                        if (failures.length) {
+                            const error = new AggregateError(failures, 'Some task work sources could not be read.');
+                            if (failures.some(
+                                function missingNativeAssociation(failure) {
+                                    return failure.code === 'PM_AVATAR_NATIVE_ASSOCIATION_UNAVAILABLE';
+                                }
+                            )) error.code = 'PM_AVATAR_NATIVE_ASSOCIATION_UNAVAILABLE';
+                            throw error;
+                        }
+                    }
+                    if (job.state.subjectType === 'project') {
+                        const records = await sources.list(
+                            {projectId: job.state.subjectId, taskId: null, signal: job.signal}
+                        );
+                        assertCurrent(job);
+                        for (const source of records) {
+                            const entry = await sources.read(source.id, options);
+                            assertCurrent(job);
+                            requireCompleteSources(
+                                {sources: [entry], complete: entry.availability === 'retained'}
+                            );
+                            job.work.projectSources.push(entry);
+                        }
+                    }
+                } catch (error) {
+                    assertCurrent(job);
+                    if (revision === job.state.revision) throw error;
+                    console.error('A superseded avatar work snapshot could not be read completely.', error);
                 }
             } while (revision !== job.state.revision);
-            const unavailableText = result.sources.filter(
-                function conversationTextUnavailable(entry) {
-                    return typeof entry.content !== 'string';
-                }
-            );
-            if (!result.complete || unavailableText.length) {
-                const error = new Error('The retained task conversation could not be read completely.');
-                error.diagnostics = {
-                    unavailableIds: result.unavailableIds,
-                    failures: result.failures,
-                    coverage: result.coverage,
-                    unavailableTextSources: unavailableText.map(
-                        function unavailableSourceMetadata(entry) {
-                            return entry.source;
-                        }
-                    )
-                };
-                throw error;
-            }
-            if (result.coverage.ordered === false) {
-                console.info(
-                    'Retained conversation order is unspecified; preserving the source owner\'s returned order.',
-                    {taskId: job.state.subjectId, coverage: result.coverage}
-                );
-            }
-            job.conversationSources = result.sources;
         } catch (error) {
             if (job.signal.aborted || error?.name === 'AbortError') throw error;
-            const failure = new Error('The task conversation source operation failed.', {cause: error});
+            const failure = new Error('The avatar work and source operation failed.', {cause: error});
             failure.code = error?.code === 'PM_AVATAR_NATIVE_ASSOCIATION_UNAVAILABLE'
                 ? error.code : 'PM_AVATAR_SOURCES_UNAVAILABLE';
             throw failure;
@@ -494,31 +559,137 @@ export function createInitialAvatarPreparation(
         }
     }
 
+    async function readTaskWorkSources(job, sources, entry, importedOrigins) {
+        const origin = entry.task.origin;
+        if (origin?.provider === 'codex') {
+            const associated = ['accountId', 'hostId', 'threadId'].every(
+                function nativeAssociationField(field) {
+                    return typeof origin[field] === 'string' && origin[field].trim();
+                }
+            );
+            if (!associated) {
+                const error = new Error('The native task association requires its account, host and thread.');
+                error.code = 'PM_AVATAR_NATIVE_ASSOCIATION_UNAVAILABLE';
+                error.diagnostics = {origin};
+                throw error;
+            }
+            const previous = importedOrigins.get(entry.task.id);
+            if (!previous || ['provider', 'accountId', 'hostId', 'threadId'].some(
+                function changedOrigin(field) {
+                    return previous[field] !== origin[field];
+                }
+            )) {
+                const imported = await sources.importConversation(
+                    entry.task.id, {signal: job.signal}
+                );
+                assertCurrent(job);
+                if (imported.coverage?.complete !== true) {
+                    const error = new Error('The native task conversation could not be retained completely.');
+                    error.diagnostics = {failures: imported.failures, coverage: imported.coverage};
+                    throw error;
+                }
+                importedOrigins.set(entry.task.id, origin);
+            }
+        }
+        const result = await sources.readTaskSources(
+            entry.task.id, {signal: job.signal}
+        );
+        assertCurrent(job);
+        requireCompleteSources(result);
+        if (result.coverage?.ordered === false) {
+            console.info(
+                'Retained conversation order is unspecified; preserving the source owner\'s returned order.',
+                {taskId: entry.task.id, coverage: result.coverage}
+            );
+        }
+        entry.sources = result.sources;
+    }
+
+    function requireCompleteSources(result) {
+        const unavailableText = result.sources.filter(
+            function sourceTextUnavailable(entry) {
+                return typeof entry.content !== 'string' || entry.failures?.length;
+            }
+        );
+        if (!result.complete || unavailableText.length) {
+            const error = new Error('The complete retained source text is unavailable to the text model.');
+            error.diagnostics = {result, unavailableText};
+            throw error;
+        }
+    }
+
     function descriptionMessages(job) {
+        let messages;
         if (job.state.subjectType === 'project') {
-            return [
+            messages = [
                 {
                     role: 'system',
-                    content: 'Write one original, concrete image description for an illustrated adult human guide representing this project. The next two user messages contain the complete project name and project description, in that order. Describe only the finished visible picture in concise, concrete prose suitable as an image-generation prompt. Make an individual face with a specific face shape, complexion, eye and nose shapes, hair color and texture, and a relaxed friendly expression. Let the work inspire one small distinctive accessory near the face or collar. Keep attention on that face and accessory. Use warm character illustration with simplified shapes and soft matte dimensional shading. Center the viewer-facing face and complete hairstyle with a small margin; show only the shoulder tops and a simple deep teal collar with restrained muted gold detail. Use a plain pale mint or lavender background. Exclude biography, explanations of symbolism, body poses, hands, scenery, text and labels. Return only the image description.'
+                    content: 'Write one original, concrete image description for an illustrated adult human guide representing this project. The next two user messages contain the complete project name and project description, in that order. Following messages supply complete member-task work, workflow history and retained sources; separate system messages identify their fields. Retained conversation messages preserve their original roles, content and order. Describe only the finished visible picture in concise, concrete prose suitable as an image-generation prompt. Make an individual face with a specific face shape, complexion, eye and nose shapes, hair color and texture, and a relaxed friendly expression. Let the work inspire one small distinctive accessory near the face or collar. Keep attention on that face and accessory. Use warm character illustration with simplified shapes and soft matte dimensional shading. Center the viewer-facing face and complete hairstyle with a small margin; show only the shoulder tops and a simple deep teal collar with restrained muted gold detail. Use a plain pale mint or lavender background. Exclude biography, explanations of symbolism, body poses, hands, scenery, text and labels. Return only the image description.'
                 },
                 {role: 'user', content: job.source.name},
                 {role: 'user', content: job.source.description}
             ];
+        } else {
+            messages = [
+                {
+                    role: 'system',
+                    content: 'Write one original, concrete image description for an illustrated adult human worker representing this task. The next three user messages contain the complete task title, assignment and project purpose, in that order. Following messages supply complete task work, workflow history and retained sources; separate system messages identify their fields. Retained conversation messages preserve their original roles, content and order. Describe only the finished visible picture in concise, concrete prose suitable as an image-generation prompt. Make an individual face with a specific face shape, complexion, eye and nose shapes, hair color and texture, and a relaxed friendly expression. Let the work inspire one small distinctive accessory near the face or collar. Keep attention on that face and accessory. Use warm character illustration with simplified shapes and soft matte dimensional shading. Center the viewer-facing face and complete hairstyle with a small margin; show only the shoulder tops and a simple deep teal collar with restrained muted gold detail. Use a plain pale mint or lavender background. Exclude biography, explanations of symbolism, body poses, hands, scenery, text and labels. Return only the image description.'
+                },
+                {role: 'user', content: job.source.title},
+                {role: 'user', content: job.source.assignment},
+                {role: 'user', content: job.source.projectPurpose}
+            ];
         }
-        return [
-            {
-                role: 'system',
-                content: 'Write one original, concrete image description for an illustrated adult human worker representing this task. The next three user messages contain the complete task title, assignment and project purpose, in that order. Following messages contain retained task conversation material with its original roles, content and order. Describe only the finished visible picture in concise, concrete prose suitable as an image-generation prompt. Make an individual face with a specific face shape, complexion, eye and nose shapes, hair color and texture, and a relaxed friendly expression. Let the work inspire one small distinctive accessory near the face or collar. Keep attention on that face and accessory. Use warm character illustration with simplified shapes and soft matte dimensional shading. Center the viewer-facing face and complete hairstyle with a small margin; show only the shoulder tops and a simple deep teal collar with restrained muted gold detail. Use a plain pale mint or lavender background. Exclude biography, explanations of symbolism, body poses, hands, scenery, text and labels. Return only the image description.'
-            },
-            {role: 'user', content: job.source.title},
-            {role: 'user', content: job.source.assignment},
-            {role: 'user', content: job.source.projectPurpose},
-            ...job.conversationSources.map(
-                function retainedConversationMessage(entry) {
-                    return {role: entry.source.message?.role ?? 'user', content: entry.content};
+        for (const [index, entry] of job.work.tasks.entries()) {
+            messages.push(
+                {role: 'system', content: `The following work belongs to member task ${index + 1}.`}
+            );
+            const task = entry.task;
+            if (job.state.subjectType === 'project') {
+                appendWorkField(messages, 'task title', task.title);
+                appendWorkField(messages, 'task assignment', task.assignment ?? '');
+            }
+            appendWorkField(messages, 'task next action', task.nextAction ?? '');
+            for (const decision of task.decisions ?? []) appendWorkField(messages, 'task decision', decision);
+            for (const question of task.openQuestions ?? []) appendWorkField(messages, 'task open question', question);
+            for (const evidence of task.observedEvidence ?? []) {
+                appendWorkField(messages, 'task observed evidence', evidence.message);
+                appendWorkField(messages, 'evidence observation time', evidence.observedAt);
+            }
+            if (task.attention) appendWorkField(messages, 'task attention request', task.attention.message);
+            for (const record of entry.history) {
+                messages.push(
+                    {role: 'system', content: `The following fields belong to one ${record.kind} workflow entry.`}
+                );
+                for (const field of ['state', 'message', 'actor', 'observedAt', 'blockingEvidence', 'nextAction', 'requestedAt', 'resolvedAt']) {
+                    if (typeof record[field] === 'string') appendWorkField(messages, `workflow ${field}`, record[field]);
                 }
-            )
-        ];
+            }
+            appendSourceMessages(messages, entry.sources);
+        }
+        if (job.work.projectSources.length) {
+            messages.push(
+                {role: 'system', content: 'The following retained sources belong directly to the project.'}
+            );
+            appendSourceMessages(messages, job.work.projectSources);
+        }
+        return messages;
+    }
+
+    function appendWorkField(messages, field, content) {
+        messages.push(
+            {role: 'system', content: `The next user message contains the complete ${field}.`},
+            {role: 'user', content}
+        );
+    }
+
+    function appendSourceMessages(messages, sources) {
+        for (const entry of sources) {
+            messages.push(
+                {role: 'system', content: `The next message contains one complete retained ${entry.source.kind} source.`},
+                {role: entry.source.message?.role ?? 'user', content: entry.content}
+            );
+        }
     }
 
     function waitForModels(job) {
@@ -616,30 +787,92 @@ export function createInitialAvatarPreparation(
     function sourcesChanged({changes}) {
         if (closed) return;
         const taskIds = new Set();
+        const projectIds = new Set();
         for (const change of changes) {
-            if (change.kind !== 'conversation'
-                || (change.contentChanged !== true && change.contentChanged !== null
-                    && change.associationChanged !== true)) continue;
+            if (change.contentChanged !== true && change.contentChanged !== null
+                && change.associationChanged !== true && change.originalChanged !== true) continue;
             if (change.contentChanged === null) {
-                console.info('Retained conversation content comparison is unavailable after a committed import.', change);
+                console.info('Retained source content comparison is unavailable after a committed import.', change);
             }
             if (change.taskId !== null && change.taskId !== undefined) taskIds.add(change.taskId);
             if (change.previousTaskId !== null && change.previousTaskId !== undefined) {
                 taskIds.add(change.previousTaskId);
             }
-        }
-        for (const taskId of taskIds) {
-            const state = states.get(`task:${taskId}`);
-            if (!state || state.faceId !== null) continue;
-            const job = jobs.get(`task:${taskId}`);
-            if (job?.acquiringSources) {
-                const revision = (revisions.get(job.key) ?? 0) + 1;
-                revisions.set(job.key, revision);
-                job.state = {...job.state, revision};
-                states.set(job.key, job.state);
-            } else {
-                invalidate(state, false);
+            if (change.projectId !== null && change.projectId !== undefined) projectIds.add(change.projectId);
+            if (change.previousProjectId !== null && change.previousProjectId !== undefined) {
+                projectIds.add(change.previousProjectId);
             }
+        }
+        for (const state of Array.from(states.values())) {
+            const relevant = state.subjectType === 'task' ? taskIds.has(state.subjectId)
+                : projectIds.has(state.subjectId) || state.workTaskIds?.some(
+                    function changedMember(taskId) { return taskIds.has(taskId); }
+                );
+            if (relevant) invalidateWork(state);
+        }
+    }
+
+    function workflowsChanged(change) {
+        if (closed || change.action === 'guide') return;
+        for (const state of Array.from(states.values())) {
+            const relevant = state.subjectType === 'task' ? state.subjectId === change.taskId
+                : state.subjectId === change.projectId || state.workTaskIds?.includes(change.taskId);
+            if (relevant) invalidateWork(state);
+        }
+    }
+
+    function invalidateWork(state) {
+        if (state.faceId !== null && state.faceId !== undefined) return;
+        const key = `${state.subjectType}:${state.subjectId}`;
+        const job = jobs.get(key);
+        if (job?.acquiringSources) {
+            const revision = (revisions.get(key) ?? 0) + 1;
+            revisions.set(key, revision);
+            job.state = {...job.state, revision};
+            states.set(key, job.state);
+        } else {
+            invalidate(state, false);
+        }
+    }
+
+    function sameWorkValue(left, right) {
+        if (left === right) return true;
+        if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+        const keys = Object.keys(left);
+        return keys.length === Object.keys(right).length && keys.every(
+            function sameWorkMember(key) {
+                return Object.hasOwn(right, key) && sameWorkValue(left[key], right[key]);
+            }
+        );
+    }
+
+    function taskWorkChanged(change) {
+        const extraFields = ['nextAction', 'decisions', 'openQuestions', 'observedEvidence', 'attention'];
+        const projectFields = ['title', 'assignment', 'projectId', 'origin', ...extraFields];
+        for (const state of Array.from(states.values())) {
+            if (state.faceId !== null && state.faceId !== undefined) continue;
+            const key = `${state.subjectType}:${state.subjectId}`;
+            const job = jobs.get(key);
+            const project = state.subjectType === 'project';
+            const membershipUnknown = project && job?.acquiringSources
+                && (!change.record || change.changedFields?.includes('projectId'));
+            const relevant = project
+                ? state.subjectId === change.record?.projectId || state.workTaskIds?.includes(change.id) || membershipUnknown
+                : state.subjectId === change.id;
+            if (!relevant) continue;
+            const entry = job?.work?.tasks.find(
+                function currentTaskWork(value) { return value.task.id === change.id; }
+            );
+            const fields = project ? projectFields : extraFields;
+            const changed = entry && change.record ? fields.some(
+                function changedWorkField(field) {
+                    return !sameWorkValue(entry.task[field], change.record[field]);
+                }
+            ) : project && (!change.record || change.action === 'created' || membershipUnknown)
+                || change.changedFields?.some(
+                    function suppliedWorkField(field) { return fields.includes(field); }
+                );
+            if (changed) invalidateWork(state);
         }
     }
 
@@ -724,6 +957,7 @@ export function createInitialAvatarPreparation(
                 if (purposeChanged) invalidate(next, false);
             }
         }
+        if (change.recordType === 'task') taskWorkChanged(change);
     }
 
     function invalidate(state, removed) {
@@ -757,12 +991,15 @@ export function createInitialAvatarPreparation(
         stopFaces();
         stopSources?.();
         stopSources = null;
+        stopWorkflows?.();
+        stopWorkflows = null;
         closing = Promise.allSettled(Array.from(pending)).then(
             function initialAvatarPreparationDisposed() {
                 jobs.clear();
                 states.clear();
                 revisions.clear();
                 sourcesOpening = null;
+                workflowsOpening = null;
                 events.dispose();
             }
         );

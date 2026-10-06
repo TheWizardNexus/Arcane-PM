@@ -10,12 +10,12 @@ Import from `modules/local-ai/index.js`:
 
 ```js
 const services = createPMPreparationServices(
-    {getStorage, pmData, signal}
+    {getStorage, pmData, getSources, getWorkflows, signal}
 );
-const {modelServices, localAI, faces, initialAvatars, decisions} = services;
+const {modelServices, localAI, faces, initialAvatars, decisions, speech} = services;
 const view = mountLocalAIView(
     container,
-    {modelServices, localAI, faces, decisions, pmData, projectId, signal}
+    {modelServices, localAI, faces, decisions, speech, pmData, projectId, signal}
 );
 ```
 
@@ -25,7 +25,95 @@ request signals and subscriptions. Application disposal joins preparation/face
 cleanup before closing SDK accessors owned by this composition. The lower-level
 exports include `createPMModelServices`, `createLocalPreparationController`,
 `createPreparationRequestSlot`, `createInitialAvatarPreparation` and
-`createPMDecisionController`.
+`createPMDecisionController` and `createPMSpeechController`.
+
+`getSources()` and `getWorkflows()` lazily resolve the application's existing
+SourceLibrary and WorkflowService. They do not create additional stores or
+block rendering. Initial portraits read the complete current task work,
+ordered workflow history and retained original sources through those owners.
+Project guides include all member tasks and direct project sources. Every
+original text remains a separate unchanged model message; field descriptions
+remain in application-authored control messages. Temporary preparation inputs
+and responses are released after their operation.
+
+## Language model selection and preparation
+
+`modelServices.catalog()` includes these published local Ollama choices:
+
+| Choice | Exact model identifier |
+| --- | --- |
+| Granite 4.2 3B, Q4_K_M | `granite4.2:3b-q4_K_M` |
+| Granite 4.2 8B, Q4_K_M | `granite4.2:8b-q4_K_M` |
+| Granite 4.2 30B, Q4_K_M | `granite4.2:30b-q4_K_M` |
+| GPT-OSS 20B, MXFP4 | `gpt-oss:20b` |
+| Meta Muse Glimmer 30B, Q4_K_M | `muse-glimmer:30b-q4_K_M` |
+
+The identifiers and quantizations come from the published
+[Granite catalog](https://ollama.com/library/granite4.2/tags),
+[GPT-OSS model](https://ollama.com/library/gpt-oss:20b), and
+[Meta Muse Glimmer model](https://ollama.com/library/muse-glimmer:30b-q4_K_M).
+The existing browser Granite 4.1 3B choice and discovered installed models
+remain available. Catalog presence describes the selected public provider
+route; it is not evidence of inference or memory fit on a particular machine.
+
+`select({providerId, modelId})` stores the nonsecret language model choice in
+`pm_local_ai_settings/language-model.json`. `ready()` reads that preference
+without loading a model; `current().preferredModel`, `preferenceState` and
+`preferenceError` expose the result. A later explicit selection wins over an
+earlier pending read. Custom browser source URLs remain supplied through the
+existing explicit browser-source flow; this preference stores model identity.
+
+`load({offline: false, signal})` acquires only the selected missing catalog
+model through the SDK's public `ollama.pull` boundary, then loads it through
+the existing local provider. An offline load of an uncached choice reports
+that the first download is required. Selection alone never downloads every
+catalog entry. The SDK-owned native runtime stays with the application's
+existing descriptor and host lifecycle.
+
+`current().model.progress` preserves the provider's progress. Browser model
+downloads report actual file totals and member shard totals. During an Ollama
+pull, `progressKind` is `ollama`, `progressPhase` is `download`, and `progress`
+is the original upstream chunk. Its `completed` and `total` describe the current
+layer, not an invented whole-model percentage. `imageLoad.progress` forwards
+the SDK's model acquisition/projection progress; image loading is a separate
+phase. Missing denominators remain indeterminate.
+
+`prepareAvatarModels({signal})` starts shared text and image preparation
+concurrently after a first-render portrait request. It uses the saved/current
+local selection, or the existing browser Granite default when none exists,
+and the selected image model or SDXL base when none exists. A remote text
+selection produces an explicit local-model requirement. Cancelling one
+portrait stops that observer; application disposal owns shared model cleanup.
+Saved faces return before this preparation begins. Exact model readiness and
+continued lifecycle observation remain required at inference.
+
+## Local Kokoro speech
+
+`services.speech` owns a direct SDK `createBrowserKokoroProvider` independently
+of language-model selection. Its model is
+`onnx-community/Kokoro-82M-v1.0-ONNX`, FP32, with the published Kokoro JavaScript
+adapter and WASM execution. The app selects `af_heart` as its initial voice.
+The SDK owns model, voice and runtime acquisition through the shared DBOPFS
+speech artifact store. Construction and selection of a language model do not
+start speech preparation or audio playback.
+
+- `current()` and replaying `subscribe(listener, {signal})` expose actual
+  lifecycle state, readiness, progress, the provider's voice catalog, errors
+  and execution metadata.
+- `load({signal})` explicitly prepares the local voice and reuses saved SDK
+  resources. Its complete upstream resource closure can require acquisition;
+  this API makes no offline-enforcement claim.
+- `synthesize({text, voice, speed = 1, signal})` immediately publishes
+  `Thinking`, waits for the selected loaded voice and forwards the complete
+  original text with `textFormat: 'plain'`. It returns a complete WAV Blob.
+- `cancel()`, `unload({signal})` and `dispose()` own cancellation and cleanup.
+  Temporary input is released after synthesis. The controller retains no
+  speech text, returned audio or conversation history.
+
+Playback is a separate explicit UI action through the shared SDK playback
+owner. The app's text-provider transitions cannot unload this independent
+speech provider. Source composition and catalog presence do not establish a
+successful local synthesis or playback on an unobserved host.
 
 The preparation view reads its task list once on mount or explicit refresh.
 Committed Data events update the supplied complete row in its keyed task list
@@ -141,14 +229,15 @@ for releasing its slot. Cards and model loading continue independently.
 - `cancelTask(id)` and `cancelProject(id)` cancel only the named subject.
   `dispose()` joins its owned operations and clears transient state.
 
-Existing saved faces are reused. A new request waits for the selected local-only
-text model and selected image model to be both ready and loaded, without choosing,
-loading or downloading either model. The complete original task title,
+Existing saved faces are reused. A new request starts shared local model
+preparation, then waits for the selected local-only text model and image model
+to be both ready and loaded. The complete original task title,
 assignment and project description, or project name and description, reach the
-text owner in separate messages. Task preparation resolves the app's lazy
-`getSources()` owner only at source consumption. Native-associated tasks await
-their conversation import before `readTaskSources(taskId, {kind: 'conversation',
-signal})`; ordinary cards and model setup render independently. Every retained
+text owner in separate messages. Preparation resolves the app's lazy
+`getSources()` and `getWorkflows()` owners only at work consumption.
+Native-associated tasks await their conversation import before
+`readTaskSources(taskId, {signal})`; every retained source kind remains in scope.
+Ordinary cards and model setup render independently. Every retained
 conversation message keeps its complete original content and source role in the
 source owner's returned order. Incomplete or unavailable conversation reads
 surface a source error and retain full developer diagnostics instead of sending
@@ -178,12 +267,16 @@ they are not saved in face metadata, history or later model context. The image,
 its subject association and ordinary generation metadata are the durable output.
 Initial-avatar status retains no prompt or model response.
 
-At most four task descriptions acquire complete conversation sources at once.
-Additional tasks expose their queued preparation state and remain cancellable.
-Each slot spans import, full retained-source reading and text consumption, then
-releases its conversation references before independent image generation. The
-separate text-request slot retains foreground priority; page rendering and
-project image work do not wait on the task-source queue.
+At most four avatar descriptions acquire complete work sources at once.
+Additional requests expose their queued preparation state and remain cancellable.
+Each slot spans workflow reading, import, full retained-source reading and text
+consumption, then releases its source references before independent image
+generation. The separate text-request slot retains foreground priority; page
+rendering remains independent. Project member acquisition uses complete ordered
+batches, retaining every member. Associated binary sources without readable
+text report the actual text-model incompatibility. Arbitrary result references,
+cross-task source references and working-folder contents are not resolved by
+this associated-source contract.
 
 The Data owner's `authoredFieldRevisions` identify actual authored scalar
 changes after temporary source text is released. Private preparation status
@@ -197,7 +290,8 @@ origin and conversation changes keep their separate existing comparisons.
 Only revision-aware Data writes advance these counters; older open writers or
 direct storage changes cannot establish a settled text change through them.
 Committed Sources content or association changes invalidate affected faceless
-tasks once per batch. An unknown prior-content comparison also invalidates the
+tasks and projects once per batch. Member-task work and workflow changes also
+invalidate affected active project descriptions. An unknown prior-content comparison invalidates the
 affected work without claiming the content changed. Saved images remain chosen.
 Explicit `retry: true` or a genuine source change permits another attempt while
 the subject remains faceless. Model replacement, loss of readiness, source
@@ -212,7 +306,7 @@ queue or readiness polling.
 
 - `current()` / `getStatus()` -> `{model,catalog,core,imageLoad,closed}`. `model` is null
   or `{providerId,modelId,localOnly,state,loaded,busy,progress,error}`.
-  `imageLoad` contains `{modelId,phase,busy,error}`; its phases are `idle`,
+  `imageLoad` contains `{modelId,phase,busy,progress,error}`; its phases are `idle`,
   `preparing`, `loading`, `ready`, `cancelled` and `error`.
 - `subscribe(listener,{signal})` replays the same snapshot.
 - `inspect({signal})` refreshes the available public Core catalog.
