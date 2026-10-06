@@ -26,6 +26,15 @@ cleanup before closing SDK accessors owned by this composition. The lower-level
 exports include `createPMModelServices`, `createLocalPreparationController`,
 `createPreparationRequestSlot` and `createInitialAvatarPreparation`.
 
+The preparation view reads its task list once on mount or explicit refresh.
+Committed Data events update the supplied complete row in its keyed task list
+and update only the affected option, preserving creation-time and ID ordering.
+Events received during a list read take precedence over that read's results.
+Activity-only updates perform no storage read or selector rebuild. A selected
+task's title or face change refreshes its face; removal or movement outside the
+selected project clears that selection and refreshes its notes. Complete task
+content and deliberately saved faces remain with their existing owners.
+
 The authored descriptor selects Ollama and `stable-diffusion.cpp` under
 `native.localAI`. The latter uses the published `master-929-3f8527a`, `auto`
 backend and `sd14` model descriptor. The SDK's normal development composition

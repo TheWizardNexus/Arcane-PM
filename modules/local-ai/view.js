@@ -137,9 +137,11 @@ export function mountLocalAIView(container, {
     let modelState = modelServices?.current?.() ?? {model: null, catalog: []};
     let imageState = imageRuntime?.current?.() ?? {models: [], available: false};
     let faceState = faces?.current?.() ?? {candidates: [], choosingTaskIds: []};
-    let tasks = [];
+    const tasks = new Map();
+    const taskOptions = new Map();
     let selectedTaskId = taskId;
-    let taskRevision = 0;
+    let taskRefresh = null;
+    let tasksLoaded = false;
     let currentFaceRevision = 0;
     let disposed = false;
     let preparation = null;
@@ -153,9 +155,7 @@ export function mountLocalAIView(container, {
     let editSource = null;
 
     function currentTask() {
-        return tasks.find(function matchingTask(task) {
-            return task.id === selectedTaskId;
-        }) ?? null;
+        return tasks.get(selectedTaskId) ?? null;
     }
 
     function status(target, message, state = 'idle') {
@@ -164,9 +164,9 @@ export function mountLocalAIView(container, {
         target.dataset.state = state;
     }
 
-    function reportFailure(target, message, error) {
+    function reportFailure(target, message, error, current = true) {
         if (error?.name !== 'AbortError') console.error(message, error);
-        if (pageSignal.aborted) return;
+        if (pageSignal.aborted || !current) return;
         status(target, error?.name === 'AbortError' ? 'Cancelled.' : message,
             error?.name === 'AbortError' ? 'cancelled' : 'error');
     }
@@ -394,11 +394,8 @@ export function mountLocalAIView(container, {
         renderFaces(faceState);
         status(controls['face-status'], 'Saving the selected face…', 'working');
         try {
-            const result = await faces.choose(candidateId, {signal: pageSignal});
+            await faces.choose(candidateId, {signal: pageSignal});
             if (pageSignal.aborted) return;
-            const index = tasks.findIndex(function chosenTask(task) { return task.id === result.task.id; });
-            if (index !== -1) tasks[index] = result.task;
-            await renderCurrentFace();
             status(controls['face-status'], 'Task face saved.', 'complete');
         } catch (error) {
             reportFailure(controls['face-status'], 'The face could not be saved. Your candidate is still available to choose again.', error);
@@ -411,29 +408,126 @@ export function mountLocalAIView(container, {
         }
     }
 
-    async function refresh() {
-        const revision = ++taskRevision;
-        try {
-            const records = await pmData.listTasks({...(projectId ? {projectId} : {}), signal: pageSignal});
-            if (pageSignal.aborted || revision !== taskRevision) return;
-            tasks = records;
-            controls.task.replaceChildren(new Option('Choose a task', ''));
-            for (const task of tasks) {
-                controls.task.append(new Option(`${task.title}${task.archivedAt ? ' · Archived' : ''}`, task.id));
+    function taskInProject(task) {
+        return task && (projectId === null || task.projectId === projectId);
+    }
+
+    function compareTasks(left, right) {
+        const created = String(left.createdAt).localeCompare(String(right.createdAt));
+        return created || left.id.localeCompare(right.id);
+    }
+
+    function taskLabel(task) {
+        return `${task.title}${task.archivedAt ? ' · Archived' : ''}`;
+    }
+
+    function renderTaskStatus() {
+        status(controls['task-status'], tasks.size ? '' : tasksLoaded
+            ? 'Add a task from Your team to give it a face.' : 'Loading tasks…');
+    }
+
+    function insertTaskOption(task, option) {
+        let first = 1;
+        let last = controls.task.options.length;
+        while (first < last) {
+            const middle = Math.floor((first + last) / 2);
+            const other = tasks.get(controls.task.options[middle].value);
+            if (compareTasks(task, other) < 0) last = middle;
+            else first = middle + 1;
+        }
+        controls.task.insertBefore(option, controls.task.options[first] ?? null);
+    }
+
+    function applyTaskRecord(id, record) {
+        const previous = tasks.get(id);
+        const task = taskInProject(record) ? record : null;
+        let option = taskOptions.get(id);
+        let optionsChanged = false;
+        if (task) {
+            tasks.set(id, task);
+            if (!option) {
+                option = new Option(taskLabel(task), id);
+                taskOptions.set(id, option);
+                insertTaskOption(task, option);
+                optionsChanged = true;
+            } else {
+                if (previous.title !== task.title || previous.archivedAt !== task.archivedAt) {
+                    option.textContent = taskLabel(task);
+                    optionsChanged = true;
+                }
+                if (previous.createdAt !== task.createdAt) {
+                    option.remove();
+                    insertTaskOption(task, option);
+                    optionsChanged = true;
+                }
             }
-            if (!currentTask()) {
-                selectedTaskId = null;
-                clearPreviews(controls.candidates);
-                candidates.clear();
-                editSource = null;
-            }
+            if (optionsChanged) controls.task.options[0].textContent = 'Choose a task';
+        } else {
+            tasks.delete(id);
+            option?.remove();
+            taskOptions.delete(id);
+            optionsChanged = Boolean(option);
+        }
+        if (optionsChanged) {
             controls.task.value = selectedTaskId ?? '';
-            status(controls['task-status'], tasks.length ? '' : 'Add a task from Your team to give it a face.');
-            updateControls();
+            renderTaskStatus();
+        }
+        if (id !== selectedTaskId) return;
+        if (!task) {
+            controls.task.value = '';
+            changeTask();
+        } else if (!previous || previous.title !== task.title || previous.faceRef !== task.faceRef) {
             renderFaces(faceState);
-            await renderCurrentFace();
+            renderCurrentFace();
+        }
+    }
+
+    function tasksChanged(change) {
+        if (pageSignal.aborted || change.recordType !== 'task') return;
+        const record = change.action === 'removed' ? null : change.record;
+        // A committed row wins over an older read from an in-flight full list.
+        taskRefresh?.changes.set(change.id, record);
+        applyTaskRecord(change.id, record);
+    }
+
+    async function refresh() {
+        if (pageSignal.aborted) return;
+        const refreshState = {changes: new Map()};
+        taskRefresh = refreshState;
+        try {
+            const records = await pmData.listTasks({...(projectId === null ? {} : {projectId}), signal: pageSignal});
+            if (pageSignal.aborted || taskRefresh !== refreshState) return;
+            const refreshed = new Map();
+            for (const task of records) refreshed.set(task.id, task);
+            for (const [id, task] of refreshState.changes) {
+                if (taskInProject(task)) refreshed.set(id, task);
+                else refreshed.delete(id);
+            }
+            tasks.clear();
+            taskOptions.clear();
+            const options = document.createDocumentFragment();
+            options.append(new Option('Choose a task', ''));
+            for (const task of Array.from(refreshed.values()).sort(compareTasks)) {
+                tasks.set(task.id, task);
+                const option = new Option(taskLabel(task), task.id);
+                taskOptions.set(task.id, option);
+                options.append(option);
+            }
+            controls.task.replaceChildren(options);
+            tasksLoaded = true;
+            renderTaskStatus();
+            controls.task.value = currentTask() ? selectedTaskId : '';
+            if (selectedTaskId && !currentTask()) changeTask();
+            else {
+                renderFaces(faceState);
+                await renderCurrentFace();
+            }
         } catch (error) {
-            reportFailure(controls['task-status'], 'Tasks could not be loaded. Restore local storage access and refresh this view.', error);
+            reportFailure(controls['task-status'], 'Tasks could not be loaded. Restore local storage access and refresh this view.',
+                error, taskRefresh === refreshState);
+        } finally {
+            if (taskRefresh === refreshState) taskRefresh = null;
+            refreshState.changes.clear();
         }
     }
 
@@ -655,6 +749,11 @@ export function mountLocalAIView(container, {
     async function refreshNotes() {
         if (typeof localAI?.listNotes !== 'function' || pageSignal.aborted) return;
         const revision = ++notesRevision;
+        savedNotes = [];
+        controls['saved-notes'].replaceChildren(new Option('Loading saved notes…', ''));
+        controls['saved-note'].textContent = '';
+        controls['saved-note'].hidden = true;
+        controls['use-saved-note'].disabled = true;
         status(controls['notes-status'], 'Loading saved notes…', 'working');
         try {
             const records = await localAI.listNotes({taskId: selectedTaskId, signal: pageSignal});
@@ -671,7 +770,8 @@ export function mountLocalAIView(container, {
             controls['use-saved-note'].disabled = true;
             status(controls['notes-status'], '');
         } catch (error) {
-            reportFailure(controls['notes-status'], 'Saved notes could not be loaded. Your open note remains available.', error);
+            reportFailure(controls['notes-status'], 'Saved notes could not be loaded. Your open note remains available.',
+                error, revision === notesRevision);
         }
     }
 
@@ -703,6 +803,10 @@ export function mountLocalAIView(container, {
         for (const unsubscribe of subscriptions) unsubscribe();
         for (const image of previews.keys()) releasePreview(image);
         candidates.clear();
+        tasks.clear();
+        taskOptions.clear();
+        taskRefresh?.changes.clear();
+        taskRefresh = null;
         controls.note.value = '';
         controls.prompt.value = '';
         controls.response.textContent = '';
@@ -765,9 +869,7 @@ export function mountLocalAIView(container, {
     if (localAI?.subscribe) subscriptions.push(localAI.subscribe(function preparationStatusChanged(snapshot) {
         if (preparation) status(controls['prepare-status'], snapshot.message, snapshot.status);
     }, {signal: pageSignal}));
-    if (pmData?.subscribe) subscriptions.push(pmData.subscribe(function tasksChanged(change) {
-        if (change.recordType === 'task') refresh();
-    }, {signal: pageSignal}));
+    if (pmData?.subscribe) subscriptions.push(pmData.subscribe(tasksChanged, {signal: pageSignal}));
     controls['save-note'].hidden = typeof localAI?.saveNote !== 'function';
     controls['saved-notes-region'].hidden = typeof localAI?.listNotes !== 'function';
     renderProviderMode();
