@@ -10,7 +10,10 @@ export function createCodexBridge({coreClient, openURL} = {}) {
     const owner = {};
     const events = createArcaneEventSource(owner, {
         source: 'arcane-pm.codex',
-        eventTypes: ['arcane-pm.codex.state', 'arcane-pm.codex.notification', 'arcane-pm.codex.request']
+        eventTypes: [
+            'arcane-pm.codex.state', 'arcane-pm.codex.notification', 'arcane-pm.codex.request',
+            'arcane-pm.codex.hook', 'arcane-pm.codex.hook-state'
+        ]
     });
     let client = null;
     let state = unavailableState();
@@ -28,7 +31,7 @@ export function createCodexBridge({coreClient, openURL} = {}) {
                 readConversation: false, resumeThread: false, createTask: false,
                 continueTask: false, sendHandoff: false, archiveThread: false,
                 restoreThread: false, cancelTurn: false, respondToRequest: false,
-                deleteThread: false, savedProjectRegistry: false, openThread: true,
+                deleteThread: false, savedProjectRegistry: false, discoverWorkspace: false, openThread: true,
                 readDirectory: false, readFile: false, getFileMetadata: false
             },
             observedAt: null
@@ -96,6 +99,18 @@ export function createCodexBridge({coreClient, openURL} = {}) {
                 'pm.codex.diagnostic',
                 function observeDiagnostic(value) {
                     if (isCurrent(next)) console.error('Arcane PM Codex diagnostics', value);
+                }
+            ),
+            next.events.on(
+                'pm.codexHooks.observed',
+                function observeHook(value) {
+                    if (isCurrent(next)) events.dispatch('arcane-pm.codex.hook', value);
+                }
+            ),
+            next.events.on(
+                'pm.codexHooks.state',
+                function observeHookState(value) {
+                    if (isCurrent(next)) events.dispatch('arcane-pm.codex.hook-state', value);
                 }
             ),
             next.events.on(
@@ -220,6 +235,22 @@ export function createCodexBridge({coreClient, openURL} = {}) {
         return events.on('arcane-pm.codex.request', function relayRequest(event) { listener(event.detail); }, {signal});
     }
 
+    function observeHooks(listener, {signal} = {}) {
+        return events.on('arcane-pm.codex.hook', function relayHook(event) { listener(event.detail); }, {signal});
+    }
+
+    function observeHookState(listener, {signal} = {}) {
+        return events.on('arcane-pm.codex.hook-state', function relayHookState(event) { listener(event.detail); }, {signal});
+    }
+
+    async function invokeHook(operation, parameters = {}) {
+        const {signal, ...payload} = parameters;
+        signal?.throwIfAborted();
+        const active = client;
+        if (!isCurrent(active)) return unavailableResult();
+        return active.invoke(`pm.codexHooks.${operation}`, payload, {signal, timeoutMs: 0});
+    }
+
     function getThreadUrl(threadId) {
         if (typeof threadId !== 'string' || !threadId.trim()) throw new TypeError('A Codex thread ID is required.');
         return `codex://threads/${encodeURIComponent(threadId)}`;
@@ -247,6 +278,7 @@ export function createCodexBridge({coreClient, openURL} = {}) {
     else stopInstallation = subscribeCoreClient(observeInstallation);
     const bridge = {
         status, refreshStatus, connect, disconnect, subscribe, observeNotifications, observeRequests,
+        observeHooks, observeHookState,
         getThreadUrl, openThread, dispose,
         observeTaskActivity: function observeTaskActivity(listener, options = {}) {
             const signal = options.signal
@@ -255,12 +287,15 @@ export function createCodexBridge({coreClient, openURL} = {}) {
             return observeCodexTaskActivity(bridge, listener, {...options, signal});
         },
         listProjects: function listProjects(parameters) { return invoke('listProjects', parameters); },
+        discoverWorkspace: function discoverWorkspace(parameters) { return invoke('discoverWorkspace', parameters); },
         listThreads: function listThreads(parameters) { return invoke('listThreads', parameters); },
         readThread: function readThread(parameters) { return invoke('readThread', parameters); },
         readConversation: function readConversation(parameters) { return invoke('readConversation', parameters); },
         readDirectory: function readDirectory(parameters) { return invoke('readDirectory', parameters); },
         readFile: function readFile(parameters) { return invoke('readFile', parameters); },
         getFileMetadata: function getFileMetadata(parameters) { return invoke('getFileMetadata', parameters); },
+        hookStatus: function hookStatus(parameters) { return invokeHook('status', parameters); },
+        readHook: function readHook(parameters) { return invokeHook('read', parameters); },
         resumeThread: function resumeThread(parameters) { return invoke('resumeThread', parameters); },
         createTask: function createTask(parameters) { return invoke('createTask', parameters); },
         continueTask: function continueTask(parameters) { return invoke('continueTask', parameters); },

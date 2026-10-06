@@ -1,6 +1,7 @@
 import {join} from 'node:path';
 import {CoreError, serializeCoreError} from 'arcane-os/core/contracts';
 import CodexAppServer from './CodexAppServer.mjs';
+import {readProjectCatalog} from './project-catalog.mjs';
 
 const SOURCE_KINDS = [
     'cli', 'vscode', 'exec', 'appServer', 'subAgent', 'subAgentReview',
@@ -91,6 +92,16 @@ export function createCodexService(options = {}) {
             original: listing,
             observedAt: listing.observedAt
         };
+    }
+
+    async function discoverWorkspace(parameters = {}, context = {}) {
+        const {threadId, ...listParameters} = parameters;
+        const [threads, projectCatalog] = await Promise.all([
+            threadId === undefined ? listThreads(listParameters, context) : readThread({threadId}, context),
+            readProjectCatalog(codex, {signal: context.signal})
+        ]);
+        context.signal?.throwIfAborted();
+        return {threads, projectCatalog};
     }
 
     async function readThread({threadId}, {signal} = {}) {
@@ -330,6 +341,7 @@ export function createCodexService(options = {}) {
             'pm.codex.disconnect': {lifetime: 'service', handle: disconnect},
             'pm.codex.listThreads': listThreads,
             'pm.codex.listProjects': listProjects,
+            'pm.codex.discoverWorkspace': discoverWorkspace,
             'pm.codex.readConversation': readConversation,
             'pm.codex.readThread': readThread,
             'pm.codex.readDirectory': readDirectory,

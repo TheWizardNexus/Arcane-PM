@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pm-codex-activity",
+  "version": "0.1.0",
+  "description": "Send native Codex activity observations to the selected local Arcane PM receiver.",
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json"
+    }
+  }
+}

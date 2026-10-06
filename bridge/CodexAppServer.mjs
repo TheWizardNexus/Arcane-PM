@@ -61,6 +61,7 @@ export class CodexAppServer {
             closing: Boolean(this.closing),
             capabilities: {
                 listProjects: connected,
+                discoverWorkspace: connected,
                 listThreads: connected,
                 readConversation: connected,
                 readThread: connected,
@@ -77,7 +78,7 @@ export class CodexAppServer {
                 respondToRequest: connected,
                 deleteThread: connected,
                 openThread: true,
-                savedProjectRegistry: false
+                savedProjectRegistry: connected
             },
             account: this.account,
             accountKnown: this.accountKnown,

@@ -13,7 +13,7 @@ search and preparation remain available independently.
 ```js
 const bridge = createCodexBridge({coreClient});
 const view = mountConnectionsView(container, {
-    bridge, pmData, projectId, onNavigate, onStatus, signal
+    bridge, pmData, projectId, discoverTasks, onNavigate, onStatus, signal
 });
 ```
 
@@ -50,11 +50,16 @@ initial status read and subscriptions; disposal does not close the shared client
 | `observeTaskActivity(listener, {threadIds:[], signal, emitCurrent:true})` | Connection-scoped activity snapshots for selected thread IDs. Returns `{setThreadIds,dispose}`; unchanged selections do not repeat reads. |
 | `listThreads({cwd, archived, signal})` | All pages for the selected archive state and directory filter. Original thread records remain unchanged. |
 | `listProjects({archived, signal})` | Observed working-folder associations from threads, with native project IDs when present. This is not a saved-project registry. |
+| `discoverWorkspace({threadId?, archived?, cwd?, signal})` | Unchanged selected `readThread` or `listThreads` result in `threads`, alongside the complete saved `projectCatalog`. Data owns mapping. |
 | `readThread({threadId, signal})` | Current native thread metadata, including actual observed state. Does not resume a thread. |
 | `readConversation({threadId, signal})` | Complete accessible turns and original page responses, plus separate coverage. Unavailable/partial history is explicit. |
 | `readDirectory({path, signal})` | Native direct-child listing in `original.entries`, with separate `children:[{fileName,path}]` routing metadata joined by the local native host. No recursive traversal. |
 | `readFile({path, signal})` | Complete original content in native `original.dataBase64`; Sources owns transport decoding to a retained File. |
 | `getFileMetadata({path, signal})` | Native file/directory/link flags and real timestamps in `original`. A zero timestamp means unavailable. |
+| `hookStatus({signal})` | Passive receiver state, all retained receipt metadata and complete catalog diagnostics. Does not activate hooks or connect Codex. |
+| `readHook({eventId, signal})` | Explicit inspection of a retained complete hook original with its separate receipt/source metadata. |
+| `observeHooks(listener, {signal})` | Newly stored hook receipt metadata; subscribe before reading `hookStatus` and deduplicate by receipt event ID. |
+| `observeHookState(listener, {signal})` | Receiver startup/drain state events; no source activity or native connection claim. |
 | `resumeThread({threadId, signal})` | Native resume; required before continuing a thread that is not loaded by this connection. It is separate from a read. |
 | `createTask({cwd, content, signal})` | Native thread creation and initial turn; new PM-created tasks select `gpt-6-astra` / `ultra`. |
 | `continueTask({threadId, content, signal})` | Resume and submit the complete supplied content to that thread. |
@@ -72,6 +77,65 @@ All asynchronous methods preserve supplied payload content. `signal` is
 operation control, separate from the destination parameters. Disconnection,
 missing native service and missing full history return an honest unavailable
 state or an actual error, never an empty successful replacement.
+
+## Saved project discovery
+
+`discoverWorkspace` starts the selected thread read, native `project/list` cursor
+chain and one selected desktop metadata read independently. It returns
+`{threads,projectCatalog}` without rewriting the original thread result. The
+catalog includes `hostId`, `observedAt`, the separate `native` and `desktop`
+sources, and overall coverage. Native projects and pages remain unchanged with
+their real IDs, names and complete root lists. Each source has its own
+`status`, coverage and complete diagnostic when unavailable or partial.
+
+The desktop source reads the expressly selected project fields from the current
+Codex home's `.codex-global-state.json`: `local-projects`,
+`thread-project-assignments`, the current host's
+`app-server-project-id-by-legacy-project-id-by-host` map, and its
+`app-server-projects-migration-by-host` record. The returned names are
+`localProjects`, `threadAssignments`, `nativeProjectIdsByLegacyId` and
+`migration`. No complete desktop state is returned or copied, and no Codex
+metadata is written. Missing fields remain absent with incomplete coverage.
+This is selected desktop metadata, not a stable public filesystem contract.
+
+Data prioritizes actual native project membership, then exact saved assignments
+and the legacy/native ID map. Multi-root projects and overlapping roots keep
+their explicit identities. Full working folder plus host is the fallback for
+tasks whose saved project cannot otherwise be established; a missing catalog
+field does not establish that a task is unassigned. Data preserves PM IDs,
+editable labels, content, avatars and manual status. It does not infer running
+state from discovery or merge projects merely because roots overlap.
+
+The application-owned `discoverTasks` callback composes broad discovery and
+idempotent Data mapping. Connections consumes the returned wrapper, and exact
+ID lookup retains the same catalog for its deliberate Add action. That action
+also uses `pmData.syncNativeDiscovery`; it has no competing project creator.
+Existing partial identities require an explicit saved-task association, with
+separate choices when more than one saved task matches. A selected PM project
+applies only to a deliberate exact single-task association. There is no polling
+or discovery triggered by PM record removal.
+
+## Passive hook receipts
+
+`bridge/hooks-service.mjs` composes independently as `pm.codexHooks`. Its
+`accept({original})` operation has SDK service lifetime: the receiver stores
+the complete original and separate receipt metadata before returning
+`status:'received'`. Accepted work drains at the Core owner. Startup reads only
+its project-owned receipt catalog and reports missing originals or metadata
+without deleting them. `status` and `read` are request-lifetime operations.
+
+Each receipt has a real event ID, receipt time and host, separate from optional
+source `hookEventName`, `sessionId`, `agentId`, `turnId` and `cwd`. Source time,
+source ordering and account identity are unavailable. A receipt is observed
+hook evidence; it never becomes an account-specific current native task state
+or proof of task completion. Full originals remain outside durable chat
+history and are retrieved only for explicit inspection.
+
+The project-owned [plugin source](../../bridge/codex-hooks/README.md) prepares a
+portable relay artifact using the installed public SDK Core client extension.
+Preparation does not activate it. Native installation, review, scope and desktop
+restart are separate operations. A native command interruption can leave an
+unknown delivery outcome; there is no automatic retry or fabricated success.
 
 ## Selected task activity
 
@@ -210,10 +274,11 @@ across replay, and exposes full protocol only in explicitly opened developer
 inspection. It offers no automatic or session-wide approval. Unsupported or
 incomplete requests retain their native conversation link.
 
-Connections also accepts an exact Codex task ID through `readThread`, then uses
-the existing local association action. This reads metadata without resuming the
-conversation or enumerating other projects. The separate task-discovery action
-remains available when the user selects broader discovery.
+Connections also accepts an exact Codex task ID through `discoverWorkspace`,
+then uses the existing local association action. This reads that thread's
+metadata and the saved project catalog without resuming the conversation or
+enumerating other tasks. The separate task-discovery action remains available
+when the user selects broader discovery.
 
 The handoff owner must supply the exact complete prepared text or native typed
 input array. The bridge does not turn a domain handoff object into a prompt,
@@ -251,6 +316,14 @@ activity. Explicit Disconnect produced a disconnected observation while the
 existing manual PM status remained unchanged. No native task was resumed,
 archived, restored, deleted or sent a message during these passes. Native
 archive/restore/delete integration has source-review evidence only.
+
+At `2026-10-06T07:22:39.752Z`, the Bridge owner independently executed the
+installed CLI `0.160.0` experimental `project/list` through an owned read-only
+app-server connection. Three complete pages returned 60 saved projects,
+including the actual PM project and root. Disconnect reported exit 0,
+`closing:false` and no process ID. This establishes the native catalog read;
+combined browser mapping and native hook delivery require their separate
+execution evidence. No native thread mutation or inference was performed.
 
 The installed SDK `0.65.0` public `arcane-os/core/client`,
 `arcane-os/core/runtime` and `arcane-os/event-manager` supply reusable transport,
