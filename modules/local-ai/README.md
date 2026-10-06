@@ -38,7 +38,11 @@ content and deliberately saved faces remain with their existing owners.
 
 The authored descriptor selects Ollama and `stable-diffusion.cpp` under
 `native.localAI`. The latter uses the published `master-929-3f8527a`, `auto`
-backend and `sd14` model descriptor. The SDK's normal development composition
+backend and the `sd14` and `sdxl-base-1.0` model descriptors. SDXL's published
+profile supplies a 1024-by-1024 canvas for text-to-image generation. Its complete
+official checkpoint is acquired through the same SDK model-store workflow;
+selecting it preserves SD14's available descriptor and previously saved faces.
+The SDK's normal development composition
 owns the local service, image service, model projection service and asynchronous
 runtime preparation. Foundation owns descriptor composition and the shared
 development server lifecycle. The former PM service wrapper is superseded by
@@ -157,8 +161,9 @@ expressive faces, individual hairstyles, softly shaded forms and centered
 head-and-shoulder composition suited to a round crop. The actual work informs
 their character, clothing and one subtle accessory. Deep teal, warm ivory,
 muted gold and restrained lavender appear within the clothing and background.
-The instructions specify drawn contours, simplified facial planes, stylized
-eyes and one finished portrait. Initial generation also supplies the native
+The instructions specify gentle dimensional shading, fine low-contrast contours,
+balanced adult features, expressive eyes and space around the complete hairstyle.
+Initial generation also supplies the native
 image owner's separate `negative_prompt` parameter to discourage photography,
 lettering, labels and palette charts. These are generation instructions;
 visual comparison with the approved references establishes the actual result.
