@@ -64,16 +64,16 @@ export function mountLocalAIView(container, {
                 <form data-control="model-form">
                     <label class="arcane-field"><span class="arcane-field__label">Run with</span>
                         <select data-control="provider-mode">
-                            <option value="local">Available native local model</option>
-                            <option value="browser">Browser CPU model already stored locally</option>
+                            <option value="local">Available local model</option>
+                            <option value="browser">Custom browser CPU model</option>
                             <option value="remote">DigitalOcean serverless · remote</option>
                         </select></label>
                     <label class="arcane-field" data-control="local-fields"><span class="arcane-field__label">Local model</span>
                         <select data-control="local-model"><option value="">No local models available</option></select></label>
                     <div data-control="browser-fields" hidden>
-                        <label class="arcane-field"><span class="arcane-field__label">Stored model ID</span><input data-control="browser-model" autocomplete="off"></label>
+                        <label class="arcane-field"><span class="arcane-field__label">Model ID</span><input data-control="browser-model" autocomplete="off"></label>
                         <label class="arcane-field"><span class="arcane-field__label">Original model file URLs, one per line</span><textarea data-control="browser-files" rows="3" spellcheck="false"></textarea></label>
-                        <p class="pm-ai-hint">Uses complete model files already in this app’s local storage. Missing files remain unavailable.</p>
+                        <p class="pm-ai-hint">Load selected model downloads these complete files when needed and stores them in this app for reuse.</p>
                     </div>
                     <div data-control="remote-fields" hidden>
                         <label class="arcane-field"><span class="arcane-field__label">Remote model ID</span><input data-control="remote-model" autocomplete="off"></label>
@@ -205,9 +205,8 @@ export function mountLocalAIView(container, {
         controls['local-model'].replaceChildren(new Option('Choose a local model', ''));
         for (const provider of snapshot.catalog ?? []) {
             if (provider.localOnly !== true) continue;
-            if (provider.providerId === 'arcane-browser-wasm-wllama') continue;
             for (const model of provider.models ?? []) {
-                const option = new Option(`${model.name ?? model.id} · ${provider.providerId}`, `${provider.providerId}\n${model.id}`);
+                const option = new Option(`${model.name ?? model.id} · ${selectedProviderLabel(provider)}`, `${provider.providerId}\n${model.id}`);
                 option.dataset.providerId = provider.providerId;
                 option.dataset.modelId = model.id;
                 controls['local-model'].append(option);
@@ -228,9 +227,11 @@ export function mountLocalAIView(container, {
         }
         controls.prepare.textContent = model?.localOnly === false ? 'Prepare with remote model' : 'Prepare with model';
         controls['load-model'].textContent = model?.localOnly === false ? 'Activate remote model' : 'Load selected model';
-        controls['model-hint'].textContent = !snapshot.core
-            ? 'Native models need Arcane Core. Browser model use requires a model already stored in this app.'
-            : 'Project browsing and local search remain available while a model loads.';
+        controls['model-hint'].textContent = model?.providerId === 'arcane-browser-wasm-wllama'
+            ? 'Load selected model downloads its configured files when needed and stores them in this app for reuse. Preparation runs locally in your browser.'
+            : !snapshot.core
+                ? 'Native models need Arcane Core. A browser CPU model is available in the local model list.'
+                : 'Project browsing and local search remain available while a model loads.';
         updateControls();
     }
 
@@ -469,7 +470,19 @@ export function mountLocalAIView(container, {
                 await modelServices.select({providerId: 'browser-wasm', modelId, source: {id: modelId, files}}, {signal: pageSignal});
             } else {
                 const selected = controls['local-model'].selectedOptions[0];
-                await modelServices.select({providerId: selected?.dataset.providerId, modelId: selected?.dataset.modelId}, {signal: pageSignal});
+                const providerId = selected?.dataset.providerId;
+                const modelId = selected?.dataset.modelId;
+                const browserModel = providerId === 'arcane-browser-wasm-wllama'
+                    ? modelState.catalog.find(function selectedBrowserProvider(provider) {
+                        return provider.providerId === providerId;
+                    })?.models.find(function selectedBrowserModel(model) {
+                        return model.id === modelId;
+                    }) : null;
+                await modelServices.select({
+                    providerId,
+                    modelId,
+                    source: browserModel ? {id: browserModel.id, files: browserModel.files} : undefined
+                }, {signal: pageSignal});
             }
         }, 'Selecting model…');
     }
@@ -750,7 +763,7 @@ export function mountLocalAIView(container, {
         faceOperation?.abort();
     }, {signal: pageSignal});
     controls['load-model'].addEventListener('click', function loadSelectedTextModel() {
-        performModelAction(function loadModel() { return modelServices.load({signal: pageSignal}); }, 'Loading selected model…');
+        performModelAction(function loadModel() { return modelServices.load({offline: false, signal: pageSignal}); }, 'Loading selected model…');
     }, {signal: pageSignal});
     controls['unload-model'].addEventListener('click', function unloadSelectedTextModel() {
         performModelAction(function unloadModel() { return modelServices.unload({signal: pageSignal}); }, 'Unloading selected model…');

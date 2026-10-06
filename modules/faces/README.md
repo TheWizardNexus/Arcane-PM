@@ -55,7 +55,7 @@ adapter, or native working projection.
   `choosingTaskIds`, `choosingProjectIds`, `initialFaces`, and `disposed`. Each
   `initialFaces` entry is `{subjectType, subjectId, taskId, projectId, status,
   message, progress, faceId}` and retains its latest transient `Thinking`,
-  `saving`, `ready`, `cancelled`, or `error` state. Project entries use
+  `generating`, `saving`, `ready`, `cancelled`, or `error` state. Project entries use
   `taskId: null`; task entries preserve the existing task ID.
 - `subscribe(listener, {signal?} = {})` synchronously replays current state,
   then observes changes, returning an unsubscribe function.

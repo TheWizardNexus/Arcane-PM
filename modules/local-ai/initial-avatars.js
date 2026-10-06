@@ -113,6 +113,7 @@ export function createInitialAvatarPreparation(
             },
             source: null,
             preparation: null,
+            imageRequested: false,
             stopImage: null,
             task: null
         };
@@ -187,7 +188,7 @@ export function createInitialAvatarPreparation(
             if (typeof description.content !== 'string' || !description.content.trim()) {
                 throw new Error('The local text model returned no image description.');
             }
-            setStatus(job, 'Thinking', 'Creating the avatar.');
+            job.imageRequested = true;
             const outcome = job.state.subjectType === 'project'
                 ? await faces.ensureInitialProjectFace(
                     {
@@ -334,6 +335,17 @@ export function createInitialAvatarPreparation(
         if (job.state.faceId === null) setStatus(job, 'cancelled', 'Avatar preparation stopped.');
     }
 
+    function faceStateChanged(snapshot) {
+        for (const face of snapshot.initialFaces) {
+            const job = jobs.get(`${face.subjectType}:${face.subjectId}`);
+            if (!job?.imageRequested || job.signal.aborted || job.state.faceId !== null
+                || !['generating', 'saving'].includes(face.status)) continue;
+            if (job.state.status !== face.status || job.state.message !== face.message) {
+                setStatus(job, face.status, face.message);
+            }
+        }
+    }
+
     function dataChanged(change) {
         const key = `${change.recordType}:${change.id}`;
         let state = states.get(key);
@@ -425,6 +437,7 @@ export function createInitialAvatarPreparation(
         lifetimeSignal.removeEventListener('abort', dispose);
         lifetime.abort(cancellation('Initial avatar preparation is closed.'));
         stopData();
+        stopFaces();
         closing = Promise.allSettled(Array.from(pending)).then(
             function initialAvatarPreparationDisposed() {
                 jobs.clear();
@@ -437,6 +450,7 @@ export function createInitialAvatarPreparation(
     }
 
     const stopData = data.subscribe(dataChanged, {signal: lifetimeSignal});
+    const stopFaces = faces.subscribe(faceStateChanged, {signal: lifetimeSignal});
     lifetimeSignal.addEventListener('abort', dispose, {once: true});
     if (lifetimeSignal.aborted) dispose();
     return {ensureTask, ensureProject, current, subscribe, cancelTask, cancelProject, dispose};

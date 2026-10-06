@@ -513,6 +513,7 @@ export function createTaskFaceController(
             } while (modelState.state !== 'ready');
             const beforeGeneration = await readInitialSubject(request);
             if (beforeGeneration) return initialOutcome(request, beforeGeneration);
+            setInitialState(request, 'generating', 'Creating the avatar.');
             const result = await imageRuntime.generate(
                 {
                     model: input.model,
@@ -523,7 +524,7 @@ export function createTaskFaceController(
                         if (initialRequests.get(request.key) === request
                             && !request.signal.aborted && !disposed) {
                             request.progress = value;
-                            setInitialState(request, 'Thinking', 'Creating the avatar.');
+                            setInitialState(request, 'generating', 'Creating the avatar.');
                         }
                     }
                 }

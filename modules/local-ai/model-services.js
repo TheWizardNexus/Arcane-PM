@@ -14,6 +14,16 @@ import {
 } from 'arcane-os/ai/browser-wasm';
 
 const BROWSER_PROVIDER = 'arcane-browser-wasm-wllama';
+const GRANITE_MODEL = {
+    id: 'granite-3b',
+    name: 'Granite 4.1 3B',
+    files: [
+        {
+            name: 'granite-4.1-3b-Q4_K_M.gguf',
+            url: 'https://huggingface.co/ibm-granite/granite-4.1-3b-GGUF/resolve/main/granite-4.1-3b-Q4_K_M.gguf'
+        }
+    ]
+};
 
 function serviceError(code, message) {
     const error = new Error(message);
@@ -111,11 +121,18 @@ export function createPMModelServices(
                 );
             }
         }
-        if (browserProvider) {
-            result.push(
-                {providerId: BROWSER_PROVIDER, localOnly: true, models: browserProvider.catalog()}
-            );
+        const browserModels = browserProvider?.catalog() ?? [];
+        const granite = browserModels.find(function matchesGranite(model) {
+            return model.id === GRANITE_MODEL.id;
+        });
+        if (granite) {
+            granite.name = GRANITE_MODEL.name;
+        } else {
+            browserModels.push(GRANITE_MODEL);
         }
+        result.push(
+            {providerId: BROWSER_PROVIDER, localOnly: true, models: browserModels}
+        );
         if (selection?.providerId === 'TWIN') {
             result.push(
                 {providerId: 'TWIN', localOnly: false, models: [{id: selection.modelId}]}
@@ -381,12 +398,14 @@ export function createPMModelServices(
             currentSignal.throwIfAborted();
             selection = {providerId: selectedProvider, modelId, localOnly: selectedProvider !== 'TWIN'};
             if (selectedProvider === BROWSER_PROVIDER) {
-                if (source?.id !== modelId) {
+                const selectedSource = source === undefined && modelId === GRANITE_MODEL.id
+                    ? {id: GRANITE_MODEL.id, files: GRANITE_MODEL.files} : source;
+                if (selectedSource?.id !== modelId) {
                     throw new TypeError('The complete browser model source must identify the selected model.');
                 }
                 const store = await getModelStore();
                 currentSignal.throwIfAborted();
-                const modelSource = createBrowserModelSource(source);
+                const modelSource = createBrowserModelSource(selectedSource);
                 if (modelSource.id !== modelId) {
                     throw new TypeError('The SDK browser source must preserve the exact selected model identifier.');
                 }
@@ -429,7 +448,7 @@ export function createPMModelServices(
         return getStatus();
     }
 
-    async function load({signal: requestSignal} = {}) {
+    async function load({offline = true, signal: requestSignal} = {}) {
         assertOpen();
         if (selecting) {
             throw serviceError('PM_MODEL_SELECTION_BUSY', 'A model selection is already changing.');
@@ -505,7 +524,7 @@ export function createPMModelServices(
             }
             if (selected.providerId === BROWSER_PROVIDER) {
                 await activeAI.load(
-                    {offline: true, gpuLayers: 0, signal: currentSignal}
+                    {offline, gpuLayers: 0, signal: currentSignal}
                 );
             } else {
                 if (!activeAI) await configureRoutedAI(selected, currentSignal);

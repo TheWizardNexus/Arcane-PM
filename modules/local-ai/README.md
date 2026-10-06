@@ -120,6 +120,8 @@ for releasing its slot. Cards and model loading continue independently.
   status. They synchronously publish pending state and proceed in the background.
 - `current()` and replaying `subscribe(listener, {signal})` expose
   `{statuses: [{subjectType, subjectId, status, message, faceId}], closed}`.
+  Accepted work starts with `Thinking`, waits in `pending` for models, and
+  forwards actual image-owner `generating` and `saving` phases for its subject.
 - `cancelTask(id)` and `cancelProject(id)` cancel only the named subject.
   `dispose()` joins its owned operations and clears transient state.
 
@@ -158,7 +160,7 @@ queue or readiness polling.
 - `inspect({signal})` refreshes the available public Core catalog.
 - `catalog()` returns provider groups and their actual model records.
 - `select({providerId,modelId,source,twinKey},{signal})` explicitly chooses a
-  route. `load({signal})` and `unload({signal})` are separate operations.
+  route. `load({offline = true,signal})` and `unload({signal})` are separate operations.
 - `getAI()` returns the current SDK provider-neutral request owner.
 - `getModelStore()` lazily composes the SDK model store over shared DBOPFS.
 - `getImageRuntime()` returns the SDK accessor, including an honest unavailable
@@ -173,10 +175,21 @@ queue or readiness polling.
   projection after the native owner takes its retain during load.
 - `dispose()` joins owned cleanup and releases SDK accessors/projections.
 
-Browser text loading uses an explicit SDK source descriptor with complete
-`id` and `files:[{name,url}]`, cached-only assets and CPU selection. No file
-importer or alternative fetch path is invented for the published source API.
-Image original selection is independent of this model-source contract.
+The local catalog includes Granite 4.1 3B Q4_K_M (`granite-3b`) using
+[IBM's official complete GGUF](https://huggingface.co/ibm-granite/granite-4.1-3b-GGUF/tree/main).
+Its app-owned descriptor declares the single original
+`granite-4.1-3b-Q4_K_M.gguf` resource. Model data is acquired through the published
+SDK model store; it is not shipped in PM source. Selection starts no download or
+inference and preserves other native, remote and custom browser choices.
+
+Browser text loading uses complete `id` and `files:[{name,url}]` descriptors and
+the SDK's packaged Wllama runtime on CPU. The explicit Load action supplies
+`offline: false` to acquire missing files into the same app DBOPFS store;
+the service API otherwise defaults to cached-only loading. Existing complete
+files are reused. No file importer, model conversion, splitting or alternative
+fetch path is added. Image original selection is independent of this source
+contract. Actual download, loading and inference remain distinct from static
+source-format compatibility.
 
 The published `0.65.0` image and ONNX accessors retain the Core client supplied
 at construction. Their attachment after a later Core installation or replacement
