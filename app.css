@@ -378,6 +378,12 @@ html {
     grid-column: 1 / -1;
 }
 
+.pm-board > [hidden],
+.pm-task-list > [hidden],
+.pm-task-presentation > [hidden] {
+    display: none;
+}
+
 .pm-column {
     --pm-state-color: var(--arcane-muted);
     min-inline-size: 0;
@@ -574,6 +580,13 @@ a.pm-task-title:hover {
 
 .pm-detail-header > :not(.pm-task-face) {
     flex: 1 1 14rem;
+    min-inline-size: 0;
+}
+
+.pm-task-presentation {
+    display: grid;
+    justify-items: start;
+    gap: var(--arcane-space-2);
     min-inline-size: 0;
 }
 

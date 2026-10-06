@@ -236,6 +236,10 @@ function isSelectedProject(project) {
     return project.id === selectedProject;
 }
 
+function projectRecordChanged(change) {
+    if (change.recordType === 'project') refreshProjects();
+}
+
 function disposeView() {
     routeLifetime?.abort();
     if (typeof currentView === 'function') currentView();
@@ -282,7 +286,7 @@ function renderRoute() {
         return;
     }
     if (route === 'task') {
-        currentView = mountTaskView(content, options);
+        currentView = mountTaskView(content, {...options, modelsReady: getModels()});
         return;
     }
     const heading = document.createElement('h1');
@@ -369,7 +373,7 @@ document.querySelector('.pm-skip-link').addEventListener('click', skipToWorkspac
 document.addEventListener('keydown', handleShortcut);
 globalThis.addEventListener('hashchange', renderRoute);
 globalThis.addEventListener('pagehide', closeApplication);
-pmData.subscribe(refreshProjects, {signal: lifetime.signal});
+pmData.subscribe(projectRecordChanged, {signal: lifetime.signal});
 renderRoute();
 refreshProjects();
 getBridge().catch(reportBridgeFailure);
