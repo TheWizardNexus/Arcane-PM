@@ -115,7 +115,9 @@ export function createInitialAvatarPreparation(
                 [lifetimeSignal, controller.signal, ...(requestSignal ? [requestSignal] : [])]
             ),
             state: {
-                subjectType, subjectId, projectId: subjectType === 'project' ? subjectId : null,
+                subjectType, subjectId, projectId: subjectType === 'project' ? subjectId : previous?.projectId ?? null,
+                authoredFieldRevisions: previous?.authoredFieldRevisions,
+                projectDescriptionRevision: previous?.projectDescriptionRevision,
                 revision, status: 'Thinking', message: 'Thinking', faceId: null
             },
             source: null,
@@ -158,15 +160,47 @@ export function createInitialAvatarPreparation(
             ? data.getProject(job.state.subjectId) : data.getTask(job.state.subjectId);
     }
 
+    function authoredRevisions(subjectType, record) {
+        if (!record) return null;
+        const fields = record.authoredFieldRevisions;
+        return subjectType === 'project'
+            ? {name: fields?.name ?? 0, description: fields?.description ?? 0}
+            : {title: fields?.title ?? 0, assignment: fields?.assignment ?? 0, projectId: fields?.projectId ?? 0};
+    }
+
+    function retainMetadata(state, metadata) {
+        const key = `${state.subjectType}:${state.subjectId}`;
+        const next = {...state, ...metadata};
+        const job = jobs.get(key);
+        if (job) job.state = next;
+        states.set(key, next);
+        return next;
+    }
+
     async function prepareAvatar(job) {
         try {
             assertCurrent(job);
+            const revisionsBeforeRead = job.state.authoredFieldRevisions;
             const subject = await readSubject(job);
             assertCurrent(job);
+            const subjectRevisions = authoredRevisions(job.state.subjectType, subject);
+            const observedRevisions = job.state.authoredFieldRevisions;
+            if (observedRevisions !== revisionsBeforeRead
+                && (observedRevisions === null || Object.keys(observedRevisions).some(
+                    function readPredatesAuthoredChange(field) {
+                        return observedRevisions[field] > (subjectRevisions?.[field] ?? 0);
+                    }
+                ))) {
+                invalidate(job.state, observedRevisions === null);
+                assertCurrent(job);
+            }
+            retainMetadata(job.state, {
+                authoredFieldRevisions: subjectRevisions,
+                projectId: job.state.subjectType === 'task' ? subject?.projectId ?? null : job.state.projectId
+            });
             if (!subject) {
                 return setStatus(job, 'cancelled', 'The work is no longer available.');
             }
-            if (job.state.subjectType === 'task') job.state.projectId = subject.projectId ?? null;
             if (subject.faceRef !== null && subject.faceRef !== undefined) {
                 return setStatus(job, 'ready', 'Using the saved avatar.', subject.faceRef);
             }
@@ -181,8 +215,18 @@ export function createInitialAvatarPreparation(
                 };
                 job.state = {...job.state, sourceOrigin: job.sourceOrigin};
                 states.set(job.key, job.state);
+                const descriptionRevisionBeforeRead = job.state.projectDescriptionRevision;
                 const project = subject.projectId ? await data.getProject(subject.projectId) : null;
                 assertCurrent(job);
+                const descriptionRevision = project ? project.authoredFieldRevisions?.description ?? 0 : null;
+                const observedDescriptionRevision = job.state.projectDescriptionRevision;
+                if (observedDescriptionRevision !== descriptionRevisionBeforeRead
+                    && (observedDescriptionRevision === null
+                        || observedDescriptionRevision > (descriptionRevision ?? -1))) {
+                    invalidate(job.state, false);
+                    assertCurrent(job);
+                }
+                retainMetadata(job.state, {projectDescriptionRevision: descriptionRevision});
                 job.source = {
                     title: subject.title ?? '',
                     assignment: subject.assignment ?? '',
@@ -602,8 +646,30 @@ export function createInitialAvatarPreparation(
         const key = `${change.recordType}:${change.id}`;
         let state = states.get(key);
         const record = change.record;
+        const removed = change.action === 'removed' || (change.action === 'refreshed' && record === null);
+        const active = jobs.get(key);
+        const previousRevisions = state?.authoredFieldRevisions;
+        const nextRevisions = authoredRevisions(change.recordType, record);
+        const authoredSourceChanged = state && previousRevisions !== undefined
+            && (previousRevisions === null || nextRevisions === null
+                ? previousRevisions !== nextRevisions
+                : Object.keys(nextRevisions).some(function authoredFieldChanged(field) {
+                    return previousRevisions[field] !== nextRevisions[field];
+                }));
         const settledTaskProjectChanged = state && !jobs.has(key) && change.recordType === 'task'
             && record && state.projectId !== (record.projectId ?? null);
+        const activeSourceChanged = active?.source && record && (change.recordType === 'project'
+            ? active.source.name !== (record.name ?? '') || active.source.description !== (record.description ?? '')
+            : active.source.title !== (record.title ?? '') || active.source.assignment !== (record.assignment ?? '')
+                || active.state.projectId !== (record.projectId ?? null));
+        if (state) {
+            const metadata = {authoredFieldRevisions: nextRevisions};
+            if (change.recordType === 'task' && record) {
+                metadata.projectId = record.projectId ?? null;
+                if (state.projectId !== metadata.projectId) metadata.projectDescriptionRevision = undefined;
+            }
+            state = retainMetadata(state, metadata);
+        }
         const facePresent = record?.faceRef !== null && record?.faceRef !== undefined;
         if (state && facePresent) {
             const job = jobs.get(key);
@@ -635,35 +701,26 @@ export function createInitialAvatarPreparation(
             publish(state);
         }
         const changed = change.changedFields ?? [];
-        const active = jobs.get(key);
-        const originChanged = state?.sourceOrigin && change.recordType === 'task'
+        const originChanged = record && state?.sourceOrigin && change.recordType === 'task'
             && ['provider', 'accountId', 'hostId', 'threadId'].some(
                 function conversationAssociationChanged(field) {
                     return state.sourceOrigin[field] !== (record?.origin?.[field] ?? null);
                 }
             );
-        const activeSourceChanged = active?.source && record && (change.recordType === 'project'
-            ? active.source.name !== (record.name ?? '') || active.source.description !== (record.description ?? '')
-            : active.source.title !== (record.title ?? '') || active.source.assignment !== (record.assignment ?? '')
-                || active.state.projectId !== (record.projectId ?? null));
-        const directSourceChange = change.action === 'removed'
-            || activeSourceChanged || originChanged || settledTaskProjectChanged
-            || (change.recordType === 'task'
-                ? changed.some(function taskSourceChanged(field) {
-                    return ['title', 'assignment', 'projectId'].includes(field)
-                        || (field === 'origin' && !state?.sourceOrigin);
-                }) : changed.some(function projectSourceChanged(field) {
-                    return ['name', 'description'].includes(field);
-                }));
-        if (state && !facePresent && directSourceChange) invalidate(state, change.action === 'removed');
+        const directSourceChange = (removed && previousRevisions !== null)
+            || authoredSourceChanged || activeSourceChanged || originChanged || settledTaskProjectChanged
+            || (change.recordType === 'task' && changed.includes('origin') && !state?.sourceOrigin);
+        if (state && !facePresent && directSourceChange) invalidate(state, removed);
         if (change.recordType === 'project') {
             for (const taskState of Array.from(states.values())) {
+                if (taskState.subjectType !== 'task' || taskState.projectId !== change.id) continue;
                 const taskJob = jobs.get(`task:${taskState.subjectId}`);
-                const purposeChanged = change.action === 'removed' || changed.includes('description')
+                const descriptionRevision = record ? record.authoredFieldRevisions?.description ?? 0 : null;
+                const purposeChanged = (taskState.projectDescriptionRevision !== undefined
+                    && taskState.projectDescriptionRevision !== descriptionRevision)
                     || (taskJob?.source && taskJob.source.projectPurpose !== (record?.description ?? ''));
-                if (taskState.subjectType === 'task' && taskState.projectId === change.id && purposeChanged) {
-                    invalidate(taskState, false);
-                }
+                const next = retainMetadata(taskState, {projectDescriptionRevision: descriptionRevision});
+                if (purposeChanged) invalidate(next, false);
             }
         }
     }

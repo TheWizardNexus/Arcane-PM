@@ -178,8 +178,17 @@ releases its conversation references before independent image generation. The
 separate text-request slot retains foreground priority; page rendering and
 project image work do not wait on the task-source queue.
 
-Data-owner `changedFields` events identify actual differences in source fields
-so status and account observations do not restart failed or cancelled work.
+The Data owner's `authoredFieldRevisions` identify actual authored scalar
+changes after temporary source text is released. Private preparation status
+retains only the relevant counters: project name and description; task title,
+assignment and project association; and the associated project's description.
+Absent counters start at zero. Committed local and cross-document records
+advance observed metadata before invalidating affected faceless work, so
+repeated notifications, unchanged saves, activity and face updates do not
+restart failed or cancelled preparation. Saved faces remain chosen. Native
+origin and conversation changes keep their separate existing comparisons.
+Only revision-aware Data writes advance these counters; older open writers or
+direct storage changes cannot establish a settled text change through them.
 Committed Sources content or association changes invalidate affected faceless
 tasks once per batch. An unknown prior-content comparison also invalidates the
 affected work without claiming the content changed. Saved images remain chosen.
