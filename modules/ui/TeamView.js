@@ -103,7 +103,126 @@ function createTaskActivityPresentation() {
     return {node, update};
 }
 
-function createTaskPortrait(face, modelsReady, signal) {
+function createAvatarPresentation(modelsReady, {signal, onStatus}) {
+    const entries = new Map();
+    const statuses = new Map();
+    const requested = new Set();
+    const labels = {
+        pending: 'Waiting', Thinking: 'Thinking', generating: 'Generating',
+        saving: 'Saving', ready: 'Ready', error: 'Error', cancelled: 'Cancelled'
+    };
+    let service;
+    let unsubscribe;
+    let closed = false;
+    let disposed = Boolean(signal?.aborted);
+    modelsReady?.then(connect).catch(unavailable);
+
+    function connect(models) {
+        if (disposed || signal?.aborted) return;
+        service = models.initialAvatars;
+        unsubscribe = service.subscribe(receive, {signal});
+        for (const entry of entries.values()) ensure(entry);
+    }
+
+    function receive(snapshot) {
+        if (disposed || signal?.aborted) return;
+        const incremental = snapshot.incremental === true;
+        const closedChanged = closed !== snapshot.closed;
+        closed = snapshot.closed;
+        if (!incremental) statuses.clear();
+        for (const status of snapshot.statuses) {
+            const key = `${status.subjectType}:${status.subjectId}`;
+            statuses.set(key, status);
+            if (incremental && !closedChanged) entries.get(key)?.render();
+        }
+        if (!incremental || closedChanged) {
+            for (const entry of entries.values()) entry.render();
+        }
+    }
+
+    function ensure(entry, retry = false) {
+        if (disposed || signal?.aborted || closed || !service || !entry.record) return;
+        if (entry.record.faceRef !== null && entry.record.faceRef !== undefined) return;
+        if (!retry && requested.has(entry.key)) return;
+        requested.add(entry.key);
+        try {
+            // Preparation belongs to the app; only this view's subscription ends on navigation.
+            const result = entry.subjectType === 'project'
+                ? service.ensureProject(entry.subjectId, {retry})
+                : service.ensureTask(entry.subjectId, {retry});
+            result.catch(preparationFailed);
+        } catch (error) {
+            preparationFailed(error);
+        }
+    }
+
+    function preparationFailed(error) {
+        if (disposed || signal?.aborted || error?.name === 'AbortError') return;
+        console.error('Arcane PM avatar preparation could not finish.', error);
+        onStatus('The avatar could not be prepared. Review Local preparation, then retry the avatar.');
+    }
+
+    function unavailable(error) {
+        if (disposed || signal?.aborted) return;
+        console.error('Arcane PM avatar preparation is unavailable.', error);
+        onStatus('Avatar preparation is unavailable. Saved task details remain available.');
+    }
+
+    function add(subjectType, subjectId) {
+        const key = `${subjectType}:${subjectId}`;
+        const node = element('div', 'pm-avatar-status');
+        const label = element('strong', '');
+        const message = element('p', '');
+        const retry = action('Retry avatar', retryAvatar, true);
+        retry.hidden = true;
+        node.hidden = true;
+        node.append(label, message, retry);
+        const entry = {key, subjectType, subjectId, record: null, render};
+        entries.set(key, entry);
+
+        function render() {
+            const state = statuses.get(key);
+            node.hidden = !entry.record || !state;
+            if (node.hidden) return;
+            const text = `Avatar: ${labels[state.status] || state.status}`;
+            if (label.textContent !== text) label.textContent = text;
+            if (message.textContent !== state.message) message.textContent = state.message;
+            message.hidden = !state.message;
+            retry.hidden = closed || !['error', 'cancelled'].includes(state.status)
+                || (entry.record.faceRef !== null && entry.record.faceRef !== undefined);
+        }
+
+        function retryAvatar() {
+            ensure(entry, true);
+        }
+
+        function update(record) {
+            entry.record = record;
+            // A saved choice completes automatic preparation for this view, even if later cleared.
+            if (record?.faceRef !== null && record?.faceRef !== undefined) requested.add(key);
+            render();
+            ensure(entry);
+        }
+
+        function remove() {
+            if (entries.get(key) === entry) entries.delete(key);
+        }
+
+        return {node, update, dispose: remove};
+    }
+
+    function dispose() {
+        disposed = true;
+        unsubscribe?.();
+        entries.clear();
+        statuses.clear();
+        requested.clear();
+    }
+
+    return {add, dispose};
+}
+
+function createSavedPortrait(face, modelsReady, signal) {
     let disposed = Boolean(signal?.aborted);
     let faceRef = null;
     let imageUrl;
@@ -139,7 +258,7 @@ function createTaskPortrait(face, modelsReady, signal) {
         }
 
         function reportFaceFailure(error) {
-            if (!disposed && !reading.signal.aborted) console.error('Arcane PM task face is unavailable.', error);
+            if (!disposed && !reading.signal.aborted) console.error('Arcane PM saved face is unavailable.', error);
         }
     }
 
@@ -157,8 +276,14 @@ function createTaskPortrait(face, modelsReady, signal) {
 export function mountTeamView(container, options) {
     const {pmData, projectId, onNavigate, onStatus, signal, modelsReady, workflowsReady, taskActivityReady} = options;
     const heading = element('div', 'pm-page-heading');
-    const titleBlock = element('div', '');
-    titleBlock.append(element('p', 'pm-eyebrow', 'Your workspace'), element('h1', '', 'Your project team'), element('p', '', 'A familiar face for every task.'));
+    const titleBlock = element('div', 'pm-detail-header');
+    const projectFace = element('div', 'pm-task-face pm-project-avatar', '◇');
+    projectFace.setAttribute('aria-hidden', 'true');
+    projectFace.hidden = true;
+    const titleCopy = element('div', 'pm-task-presentation');
+    const projectLabel = element('p', 'pm-eyebrow', 'Your workspace');
+    titleCopy.append(projectLabel, element('h1', '', 'Your project team'), element('p', '', 'A familiar face for every task.'));
+    titleBlock.append(projectFace, titleCopy);
     const actions = element('div', 'pm-actions');
     actions.append(action('Add existing project', openProjectForm, true), action('Add a task', openTaskForm));
     heading.append(titleBlock, actions);
@@ -179,6 +304,11 @@ export function mountTeamView(container, options) {
     let pendingScan;
     let taskActivity;
     let unsubscribeActivity;
+    let projectRevision = 0;
+    const avatars = createAvatarPresentation(modelsReady, {signal, onStatus});
+    const projectAvatar = projectId ? avatars.add('project', projectId) : null;
+    const projectPortrait = projectId ? createSavedPortrait(projectFace, modelsReady, signal) : null;
+    if (projectAvatar) titleCopy.append(projectAvatar.node);
     const cards = new Map();
     const columns = new Map();
     const empty = element('section', 'pm-empty arcane-card');
@@ -207,6 +337,27 @@ export function mountTeamView(container, options) {
         board.append(column);
     }
     board.append(empty, notice);
+
+    async function openSelectedProject() {
+        if (!projectId) return;
+        const currentRevision = ++projectRevision;
+        try {
+            const project = await pmData.getProject(projectId);
+            if (disposed || signal?.aborted || projectRevision !== currentRevision) return;
+            presentProject(project);
+        } catch (error) {
+            if (disposed || signal?.aborted || projectRevision !== currentRevision) return;
+            console.error('Arcane PM selected project could not be opened.', error);
+            onStatus('The selected project could not be opened. Your task details remain available.');
+        }
+    }
+
+    function presentProject(project) {
+        projectFace.hidden = !project;
+        projectLabel.textContent = project ? project.name : 'Selected project unavailable';
+        projectPortrait.update(project?.faceRef ?? null);
+        projectAvatar.update(project);
+    }
 
     function openLocalPreparation() {
         onNavigate('local-ai', {projectId});
@@ -307,11 +458,12 @@ export function mountTeamView(container, options) {
         const state = element('p', 'pm-task-state', statusText(task));
         const description = element('p', 'pm-task-description', task.attention?.message || task.nextAction || task.assignment || 'Choose the next step for this task.');
         const activity = createTaskActivityPresentation();
+        const avatar = avatars.add('task', task.id);
         const open = action('Open task →', openTask, true);
         open.classList.add('pm-task-link');
-        card.append(face, title, state, activity.node, description, open);
-        const portrait = createTaskPortrait(face, modelsReady, signal);
-        return {node: card, update, dispose: portrait.dispose};
+        card.append(face, title, state, avatar.node, activity.node, description, open);
+        const portrait = createSavedPortrait(face, modelsReady, signal);
+        return {node: card, update, dispose};
 
         function openTask() {
             onNavigate('task', {projectId: currentTask.projectId, taskId: currentTask.id});
@@ -326,6 +478,12 @@ export function mountTeamView(container, options) {
             if (description.textContent !== nextDescription) description.textContent = nextDescription;
             activity.update(nextTask, taskActivity?.current(nextTask.id));
             portrait.update(nextTask.faceRef);
+            avatar.update(nextTask);
+        }
+
+        function dispose() {
+            portrait.dispose();
+            avatar.dispose();
         }
     }
 
@@ -334,8 +492,14 @@ export function mountTeamView(container, options) {
         else target.delete(id);
     }
 
-    function taskChanged(change) {
-        if (disposed || signal?.aborted || change.recordType !== 'task') return;
+    function recordChanged(change) {
+        if (disposed || signal?.aborted) return;
+        if (projectId && change.recordType === 'project' && change.id === projectId) {
+            projectRevision++;
+            presentProject(change.record);
+            return;
+        }
+        if (change.recordType !== 'task') return;
         pendingScan?.set(change.id, change.record);
         retainRecord(records, change.id, change.record);
         renderBoard(change.id);
@@ -434,12 +598,15 @@ export function mountTeamView(container, options) {
 
     workflowsReady?.then(mountGuide).catch(guideFailed);
     taskActivityReady?.then(connectActivity).catch(activityFailed);
-    const unsubscribe = pmData.subscribe(taskChanged, {signal});
+    const unsubscribe = pmData.subscribe(recordChanged, {signal});
     refresh();
+    openSelectedProject();
     function dispose() {
         disposed = true;
         unsubscribe();
         unsubscribeActivity?.();
+        avatars.dispose();
+        projectPortrait?.dispose();
         guideView?.dispose();
         for (const card of cards.values()) card.dispose();
         cards.clear();
@@ -455,6 +622,7 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
     let portrait;
     let taskActivity;
     let unsubscribeActivity;
+    const avatars = createAvatarPresentation(modelsReady, {signal, onStatus});
     container.replaceChildren(element('p', 'pm-notice', 'Opening task…'));
     const unsubscribe = pmData.subscribe(taskChanged, {signal});
     taskActivityReady?.then(connectActivity).catch(activityFailed);
@@ -484,6 +652,7 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
                 presentation.notice.textContent = 'This PM record could not be found. Your entered text is still here.';
                 presentation.notice.hidden = false;
                 presentation.activity.update(null, null);
+                presentation.avatar.update(null);
                 portrait.update(null);
             } else {
                 container.replaceChildren(element('h1', '', 'Task unavailable'), element('p', '', 'This PM record could not be found.'));
@@ -500,6 +669,7 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         presentation.description.hidden = !nextDescription;
         presentation.activity.update(task, taskActivity?.current(taskId));
         portrait.update(task.faceRef);
+        presentation.avatar.update(task);
     }
 
     function connectActivity(service) {
@@ -529,9 +699,10 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         const state = element('p', 'pm-task-state');
         const description = element('p', 'pm-task-description');
         const activity = createTaskActivityPresentation();
+        const avatar = avatars.add('task', taskId);
         const notice = element('p', 'pm-notice');
         notice.hidden = true;
-        summary.append(element('p', 'pm-eyebrow', 'Local task record'), title, state, activity.node, description, notice);
+        summary.append(element('p', 'pm-eyebrow', 'Local task record'), title, state, avatar.node, activity.node, description, notice);
         header.append(face, summary);
         heading.append(header, action('Back to team', backToTeam, true));
         const form = element('form', 'pm-form arcane-card');
@@ -552,8 +723,8 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         form.append(actions);
         form.addEventListener('submit', saveTask);
         container.replaceChildren(heading, form);
-        presentation = {title, state, description, notice, activity};
-        portrait = createTaskPortrait(face, modelsReady, signal);
+        presentation = {title, state, description, notice, activity, avatar};
+        portrait = createSavedPortrait(face, modelsReady, signal);
 
         async function saveTask(event) {
             event.preventDefault();
@@ -592,6 +763,7 @@ export function mountTaskView(container, {pmData, projectId, taskId, onNavigate,
         disposed = true;
         unsubscribe();
         unsubscribeActivity?.();
+        avatars.dispose();
         portrait?.dispose();
     }
     return {refresh, dispose};

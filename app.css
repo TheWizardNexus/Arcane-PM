@@ -558,6 +558,34 @@ a.pm-task-title:hover {
     color: var(--accent-color);
 }
 
+.pm-project-avatar[hidden],
+.pm-avatar-status[hidden],
+.pm-avatar-status > [hidden] {
+    display: none;
+}
+
+.pm-avatar-status {
+    display: flex;
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--arcane-space-2);
+    min-inline-size: 0;
+    font-size: .8rem;
+    color: var(--arcane-muted);
+}
+
+.pm-avatar-status > p {
+    flex: 1 1 12rem;
+    min-inline-size: 0;
+    white-space: pre-wrap;
+}
+
+.pm-avatar-status > button {
+    font-size: inherit;
+}
+
 .pm-task-link {
     grid-column: 1 / -1;
     padding-block-start: var(--arcane-space-3);
