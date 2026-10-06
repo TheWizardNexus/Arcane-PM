@@ -1,4 +1,4 @@
-export function mountCleanupView(container, {cleanup, pmData, projectId = null, onNavigate, onStatus, signal} = {}) {
+export function mountCleanupView(container, {cleanup, pmData, projectId = null, taskActivityReady, onNavigate, onStatus, signal} = {}) {
     const document = container.ownerDocument;
     const lifetime = new AbortController();
     const root = document.createElement('section');
@@ -49,6 +49,24 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
     let inventoryLifetime = new AbortController();
     let reviewLifetime = new AbortController();
     let stopNative = null;
+    let stopData = null;
+    let stopActivity = null;
+    let taskActivity = null;
+    let taskRecords = new Map();
+    let taskIds = [];
+    let folderTaskIds = [];
+    let changesDuringRefresh = null;
+    let inventoryFrame = null;
+    let inventoryChanged = false;
+    const taskRows = new Map();
+    const visibleTaskIds = new Set();
+    const changedTaskIds = new Set();
+    const pages = {tasks: 0, resources: 0, 'working-files': 0};
+    const pageLength = 2;
+    const workStateLabels = {
+        idle: 'Idle', unknown: 'Unknown', notLoaded: 'Not loaded', working: 'Working',
+        'needs-input': 'Needs your input', 'needs-approval': 'Needs your approval', error: 'Needs attention'
+    };
 
     for (const [view, label] of [['tasks', 'Tasks'], ['resources', 'App files'], ['working-files', 'Working files']]) {
         const button = document.createElement('button');
@@ -109,8 +127,9 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
         inventoryLifetime.abort();
         inventoryLifetime = new AbortController();
         inventory.replaceChildren();
+        visibleTaskIds.clear();
         if (!snapshot) {
-            appendText(inventory, 'p', 'Loading the selected project…', 'arcane-state');
+            appendText(inventory, 'p', 'Loading tasks and files…', 'arcane-state');
             return;
         }
 
@@ -127,7 +146,8 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
             if (!snapshot.resources.length) {
                 appendText(inventory, 'p', 'The app-resource owner has no files to review for this project.', 'arcane-state');
             }
-            for (const resource of snapshot.resources) {
+            const resources = pageItems(snapshot.resources);
+            for (const resource of resources.items) {
                 const row = document.createElement('article');
                 row.className = 'arcane-card pm-cleanup-row';
                 appendText(row, 'h3', resource.title);
@@ -139,9 +159,10 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
                 if (resource.usedBy?.length) {
                     appendText(row, 'p', `In use by: ${resource.usedBy.join(', ')}`, 'arcane-help');
                 }
-                appendReviewButton(row, 'dispose-resource', resource.id, 'Review resource');
+                appendReviewButton(row, 'dispose-resource', resource.id, 'Review resource', resource.projectId);
                 inventory.append(row);
             }
+            appendPagination(resources, 'files');
             return;
         }
 
@@ -152,47 +173,213 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
                 appendText(inventory, 'p', 'The project folder could not be read. Refresh to try again.', 'arcane-state arcane-state--error');
             } else if (snapshot.project?.workFolder) {
                 appendText(inventory, 'p', snapshot.project.workFolder, 'pm-cleanup-original');
-            } else {
+            } else if (projectId) {
                 appendText(inventory, 'p', 'No project working folder is recorded.', 'arcane-state');
+            } else {
+                appendText(inventory, 'p', 'Choose a project to view its working folder. All recorded task folders are listed below.', 'arcane-help');
             }
-            for (const task of snapshot.tasks) {
-                if (task.workFolder) {
-                    const row = document.createElement('article');
-                    row.className = 'arcane-card pm-cleanup-row';
-                    appendText(row, 'h3', task.title);
-                    appendText(row, 'p', task.workFolder, 'pm-cleanup-original');
-                    appendText(row, 'p', task.archivedAt ? 'Archived PM task; working files stay with their owner.' : 'Associated with an active PM task.', 'arcane-help');
-                    inventory.append(row);
-                }
+            const folders = pageItems(folderTaskIds);
+            for (const taskId of folders.items) {
+                const task = taskRecords.get(taskId);
+                const row = document.createElement('article');
+                row.className = 'arcane-card pm-cleanup-row';
+                appendText(row, 'h3', task.title);
+                appendText(row, 'p', task.workFolder, 'pm-cleanup-original');
+                appendText(row, 'p', task.archivedAt ? 'Archived PM task; working files stay with their owner.' : 'Associated with an unarchived PM task.', 'arcane-help');
+                appendTaskLink(row, task, inventoryLifetime.signal);
+                inventory.append(row);
             }
+            appendPagination(folders, 'task folders');
             if (snapshot.tasksError) {
                 appendText(inventory, 'p', 'Some task folder associations could not be loaded. Refresh to try again.', 'arcane-state arcane-state--error');
             }
             return;
         }
 
-        appendText(inventory, 'h2', 'Project tasks', 'arcane-section-heading');
+        appendText(inventory, 'h2', projectId ? 'Project tasks' : 'All tasks', 'arcane-section-heading');
         if (snapshot.tasksError) {
             appendText(inventory, 'p', 'The task list could not be loaded completely. Refresh to try again.', 'arcane-state arcane-state--error');
         }
-        if (!snapshot.tasks.length && !snapshot.tasksError) {
-            appendText(inventory, 'p', 'This project has no PM tasks to tidy up.', 'arcane-state');
+        if (!taskIds.length && !snapshot.tasksError) {
+            appendText(inventory, 'p', projectId ? 'This project has no PM tasks to tidy up.' : 'There are no PM tasks to tidy up.', 'arcane-state');
         }
-        for (const task of snapshot.tasks) {
-            const row = document.createElement('article');
-            row.className = 'arcane-card pm-cleanup-row';
-            appendText(row, 'h3', task.title);
-            appendText(row, 'p', task.archivedAt ? 'Archived in PM' : 'Active in PM', 'arcane-badge');
-            appendText(row, 'p', `Recorded work state: ${task.status}`, 'arcane-help');
-            if (task.assignment) {
-                appendText(row, 'p', task.assignment, 'pm-cleanup-original');
-            }
-            appendReviewButton(row, task.archivedAt ? 'restore-task' : 'archive-task', task.id, 'Review actions');
-            inventory.append(row);
+        const tasks = pageItems(taskIds);
+        for (const taskId of tasks.items) {
+            visibleTaskIds.add(taskId);
+            const entry = taskRows.get(taskId) || createTaskRow(taskId);
+            updateTaskRow(entry);
+            inventory.append(entry.row);
         }
+        appendPagination(tasks, snapshot.tasksError ? 'loaded tasks' : 'tasks');
     }
 
-    function appendReviewButton(parent, action, targetId, label) {
+    function pageItems(items) {
+        const total = items.length;
+        const pageCount = Math.max(1, Math.ceil(total / pageLength));
+        pages[activeView] = Math.min(pages[activeView], pageCount - 1);
+        const start = pages[activeView] * pageLength;
+        const end = Math.min(start + pageLength, total);
+        const selected = [];
+        for (let index = start; index < end; index++) selected.push(items[index]);
+        return {items: selected, total, pageCount, start, end};
+    }
+
+    function appendPagination(page, label) {
+        const navigation = document.createElement('nav');
+        navigation.className = 'pm-cleanup-pagination';
+        navigation.setAttribute('aria-label', `${label} pages`);
+        const previous = document.createElement('button');
+        previous.type = 'button';
+        previous.className = 'arcane-button arcane-button--secondary';
+        previous.textContent = 'Previous';
+        previous.disabled = pages[activeView] === 0;
+        previous.addEventListener(
+            'click', previousPage,
+            {signal: inventoryLifetime.signal}
+        );
+        const indicator = document.createElement('span');
+        indicator.className = 'pm-cleanup-page-indicator';
+        indicator.setAttribute('role', 'status');
+        indicator.textContent = page.total
+            ? `${page.start + 1}–${page.end} of ${page.total} ${label} · Page ${pages[activeView] + 1} of ${page.pageCount}`
+            : `0 ${label}`;
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.className = 'arcane-button arcane-button--secondary';
+        next.textContent = 'Next';
+        next.disabled = pages[activeView] + 1 === page.pageCount;
+        next.addEventListener(
+            'click', nextPage,
+            {signal: inventoryLifetime.signal}
+        );
+        navigation.append(previous, indicator, next);
+        inventory.append(navigation);
+    }
+
+    function previousPage() {
+        pages[activeView] -= 1;
+        renderInventory();
+        focusInventory();
+    }
+
+    function nextPage() {
+        pages[activeView] += 1;
+        renderInventory();
+        focusInventory();
+    }
+
+    function focusInventory() {
+        const title = inventory.querySelector('h2');
+        title.tabIndex = -1;
+        title.focus(
+            {preventScroll: true}
+        );
+        title.scrollIntoView(
+            {block: 'nearest'}
+        );
+    }
+
+    function appendTaskLink(parent, task, eventSignal) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'arcane-button arcane-button--secondary';
+        button.textContent = 'Open task';
+        button.disabled = !onNavigate;
+        button.addEventListener(
+            'click',
+            function openTask() {
+                const current = taskRecords.get(task.id);
+                if (current) onNavigate(
+                    'task',
+                    {projectId: current.projectId, taskId: current.id}
+                );
+            },
+            {signal: eventSignal}
+        );
+        parent.append(button);
+    }
+
+    function createTaskRow(taskId) {
+        const rowLifetime = new AbortController();
+        const row = document.createElement('article');
+        row.className = 'arcane-card pm-cleanup-row pm-cleanup-task-row';
+        const title = appendText(row, 'h3', '');
+        const pmArchive = appendText(row, 'p', '', 'arcane-badge');
+        const workState = appendText(row, 'p', '', 'arcane-help');
+        const activity = appendText(row, 'p', '', 'pm-cleanup-activity');
+        const activityMessage = appendText(row, 'p', '', 'pm-cleanup-original arcane-help');
+        const nativeArchive = appendText(row, 'p', '', 'arcane-help');
+        const assignment = document.createElement('details');
+        assignment.className = 'pm-cleanup-assignment';
+        appendText(assignment, 'summary', 'Assignment');
+        const assignmentText = appendText(assignment, 'p', '', 'pm-cleanup-original');
+        row.append(assignment);
+        const actions = document.createElement('div');
+        actions.className = 'pm-cleanup-actions';
+        appendTaskLink(actions, taskRecords.get(taskId), rowLifetime.signal);
+        const reviewButton = document.createElement('button');
+        reviewButton.type = 'button';
+        reviewButton.className = 'arcane-button arcane-button--secondary';
+        reviewButton.textContent = 'Review actions';
+        reviewButton.addEventListener(
+            'click',
+            function reviewTask() {
+                const task = taskRecords.get(taskId);
+                if (task) void selectTarget(task.archivedAt ? 'restore-task' : 'archive-task', task.id, task.projectId);
+            },
+            {signal: rowLifetime.signal}
+        );
+        actions.append(reviewButton);
+        row.append(actions);
+        const entry = {taskId, row, rowLifetime, title, pmArchive, workState, activity, activityMessage, nativeArchive, assignment, assignmentText, reviewButton};
+        taskRows.set(taskId, entry);
+        return entry;
+    }
+
+    function updateText(node, text) {
+        if (node.textContent !== text) node.textContent = text;
+    }
+
+    function workStateText(state) {
+        return workStateLabels[state] || state || 'Unknown';
+    }
+
+    function matchesNativeTask(observation, task) {
+        const origin = task.origin;
+        const saved = observation?.origin;
+        return origin?.provider === 'codex' && saved?.provider === 'codex'
+            && Boolean(origin.hostId && origin.threadId)
+            && saved.hostId === origin.hostId && saved.threadId === origin.threadId;
+    }
+
+    function updateTaskRow(entry) {
+        const task = taskRecords.get(entry.taskId);
+        if (!task) return;
+        updateText(entry.title, task.title);
+        updateText(entry.pmArchive, task.archivedAt ? 'Archived in PM' : 'Not archived in PM');
+        updateText(entry.workState, `Recorded work state: ${workStateText(task.status)}`);
+        const current = taskActivity?.current(task.id);
+        const saved = matchesNativeTask(task.nativeActivity, task) ? task.nativeActivity : null;
+        const linked = task.origin?.provider === 'codex';
+        entry.activity.hidden = !linked && !saved && !current;
+        const message = (current ? current.message : saved?.message) || '';
+        entry.activityMessage.hidden = !message;
+        updateText(entry.activity, current
+            ? `Current Codex activity: ${workStateText(current.state)}`
+            : saved
+                ? `Current activity unconfirmed. Saved observation: ${saved.availability === 'observed' ? workStateText(saved.state) : saved.availability}${saved.observedAt ? ` · ${saved.observedAt}` : ''}`
+                : 'Current Codex activity is unconfirmed.');
+        updateText(entry.activityMessage, message);
+        const archive = matchesNativeTask(task.nativeArchiveObservation, task) ? task.nativeArchiveObservation : null;
+        entry.nativeArchive.hidden = !linked && !archive;
+        const archiveLabel = archive?.archived === true ? 'Archived' : archive?.archived === false ? 'Not archived' : archive ? 'Uncertain' : 'Unobserved';
+        updateText(entry.nativeArchive, `Last Codex archive observation: ${archiveLabel}${archive?.observedAt ? ` · ${archive.observedAt}` : ''}`);
+        entry.assignment.hidden = !task.assignment;
+        updateText(entry.assignmentText, task.assignment || '');
+        entry.reviewButton.disabled = pendingAction;
+    }
+
+    function appendReviewButton(parent, action, targetId, label, targetProjectId) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'arcane-button arcane-button--secondary';
@@ -201,14 +388,14 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
         button.addEventListener(
             'click',
             function requestTargetReview() {
-                void selectTarget(action, targetId);
+                void selectTarget(action, targetId, targetProjectId);
             },
             {signal: inventoryLifetime.signal}
         );
         parent.append(button);
     }
 
-    async function selectTarget(action, targetId) {
+    async function selectTarget(action, targetId, targetProjectId) {
         if (pendingAction || lifetime.signal.aborted) {
             return;
         }
@@ -221,7 +408,7 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
         showStatus('Preparing the selected action for review…');
         try {
             const reviewed = await cleanup.review(
-                {action, targetId, projectId},
+                {action, targetId, projectId: targetProjectId},
                 {signal: lifetime.signal}
             );
             if (lifetime.signal.aborted || revision !== reviewRevision) {
@@ -275,7 +462,7 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
             select.addEventListener(
                 'change',
                 function changeReviewedAction() {
-                    void selectTarget(select.value, selectedReview.targetId);
+                    void selectTarget(select.value, selectedReview.targetId, selectedReview.projectId);
                 },
                 {signal: reviewLifetime.signal}
             );
@@ -328,7 +515,7 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
             reviewAgainButton.addEventListener(
                 'click',
                 function reviewNativeActionAgain() {
-                    void selectTarget(selectedReview.action, selectedReview.targetId);
+                    void selectTarget(selectedReview.action, selectedReview.targetId, selectedReview.projectId);
                 },
                 {signal: reviewLifetime.signal}
             );
@@ -468,10 +655,125 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
         }
     }
 
+    function belongsToView(task) {
+        return task && (projectId === null || task.projectId === projectId);
+    }
+
+    function compareTasks(leftId, rightId) {
+        const left = taskRecords.get(leftId);
+        const right = taskRecords.get(rightId);
+        return String(left.createdAt).localeCompare(String(right.createdAt)) || leftId.localeCompare(rightId);
+    }
+
+    function insertTaskId(ids, taskId) {
+        let start = 0;
+        let end = ids.length;
+        while (start < end) {
+            const middle = Math.floor((start + end) / 2);
+            if (compareTasks(ids[middle], taskId) < 0) start = middle + 1;
+            else end = middle;
+        }
+        ids.splice(start, 0, taskId);
+    }
+
+    function removeTaskId(ids, taskId) {
+        const index = ids.indexOf(taskId);
+        if (index !== -1) ids.splice(index, 1);
+    }
+
+    function retainTaskChange(taskId, record) {
+        const previous = taskRecords.get(taskId);
+        if (!belongsToView(record)) {
+            if (!previous) return;
+            removeTaskId(taskIds, taskId);
+            removeTaskId(folderTaskIds, taskId);
+            taskRecords.delete(taskId);
+            taskRows.get(taskId)?.rowLifetime.abort();
+            taskRows.delete(taskId);
+            inventoryChanged = true;
+            return;
+        }
+        taskRecords.set(taskId, record);
+        if (!previous) {
+            insertTaskId(taskIds, taskId);
+            inventoryChanged = true;
+        }
+        if (Boolean(previous?.workFolder) !== Boolean(record.workFolder)) {
+            if (record.workFolder) insertTaskId(folderTaskIds, taskId);
+            else removeTaskId(folderTaskIds, taskId);
+            if (activeView === 'working-files') inventoryChanged = true;
+        }
+        if (activeView === 'working-files' && previous
+            && (previous.title !== record.title || previous.workFolder !== record.workFolder || previous.archivedAt !== record.archivedAt)) {
+            inventoryChanged = true;
+        }
+        changedTaskIds.add(taskId);
+    }
+
+    function recordChanged(change) {
+        if (lifetime.signal.aborted) return;
+        if (change.recordType === 'project') {
+            if (snapshot && change.id === projectId) {
+                snapshot.project = change.record;
+                if (activeView === 'working-files') {
+                    inventoryChanged = true;
+                    scheduleInventoryUpdate();
+                }
+            }
+            return;
+        }
+        if (change.recordType !== 'task') return;
+        changesDuringRefresh?.set(change.id, change.record);
+        retainTaskChange(change.id, change.record);
+        scheduleInventoryUpdate();
+    }
+
+    function activityChanged({taskId}) {
+        if (lifetime.signal.aborted) return;
+        if (taskId === null) {
+            for (const visibleId of visibleTaskIds) changedTaskIds.add(visibleId);
+        } else if (visibleTaskIds.has(taskId)) changedTaskIds.add(taskId);
+        else return;
+        scheduleInventoryUpdate();
+    }
+
+    function scheduleInventoryUpdate() {
+        if (inventoryFrame === null) inventoryFrame = requestAnimationFrame(updateInventory);
+    }
+
+    function updateInventory() {
+        inventoryFrame = null;
+        if (lifetime.signal.aborted) return;
+        if (inventoryChanged) {
+            inventoryChanged = false;
+            renderInventory();
+        } else {
+            for (const taskId of changedTaskIds) {
+                if (visibleTaskIds.has(taskId)) updateTaskRow(taskRows.get(taskId));
+            }
+        }
+        changedTaskIds.clear();
+    }
+
+    function connectActivity(service) {
+        if (lifetime.signal.aborted) return;
+        taskActivity = service;
+        stopActivity = service.subscribe(
+            activityChanged,
+            {signal: lifetime.signal, emitCurrent: true}
+        );
+    }
+
+    function activityFailed(error) {
+        reportFailure(error, 'Current Codex activity is unavailable. Saved tasks and cleanup controls remain available.');
+    }
+
     async function refresh() {
         const revision = ++refreshRevision;
+        const changes = new Map();
+        changesDuringRefresh = changes;
         if (!pendingAction && !nativeOutcome) {
-            showStatus('Loading the selected project…');
+            showStatus('Loading tasks and files…');
         }
         try {
             const loaded = await cleanup.listProjectTargets(
@@ -482,6 +784,27 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
                 return;
             }
             snapshot = loaded;
+            const records = new Map();
+            for (const task of loaded.tasks) {
+                if (belongsToView(task)) records.set(task.id, task);
+            }
+            for (const [taskId, task] of changes) {
+                if (belongsToView(task)) records.set(taskId, task);
+                else records.delete(taskId);
+            }
+            taskRecords = records;
+            taskIds = [...records.keys()].sort(compareTasks);
+            folderTaskIds = taskIds.filter(
+                function hasWorkingFolder(taskId) {
+                    return Boolean(records.get(taskId).workFolder);
+                }
+            );
+            for (const taskId of taskRows.keys()) {
+                if (!records.has(taskId)) {
+                    taskRows.get(taskId).rowLifetime.abort();
+                    taskRows.delete(taskId);
+                }
+            }
             for (const error of [loaded.projectError, loaded.tasksError, loaded.resourcesError]) {
                 if (error) {
                     console.error('Arcane PM tidy-up inventory failed.', error);
@@ -493,6 +816,8 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
             }
         } catch (error) {
             reportFailure(error, 'Project information could not be loaded. Use Refresh to try again.');
+        } finally {
+            if (changesDuringRefresh === changes) changesDuringRefresh = null;
         }
     }
 
@@ -514,6 +839,12 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
         inventoryLifetime.abort();
         reviewLifetime.abort();
         stopNative?.();
+        stopData?.();
+        stopActivity?.();
+        if (inventoryFrame !== null) cancelAnimationFrame(inventoryFrame);
+        for (const entry of taskRows.values()) entry.rowLifetime.abort();
+        taskRows.clear();
+        taskRecords.clear();
         signal?.removeEventListener('abort', dispose);
         root.remove();
     }
@@ -537,6 +868,11 @@ export function mountCleanupView(container, {cleanup, pmData, projectId = null, 
             observeNativeConnection,
             {signal: lifetime.signal, emitCurrent: true}
         );
+        stopData = pmData.subscribe(
+            recordChanged,
+            {signal: lifetime.signal}
+        );
+        taskActivityReady?.then(connectActivity).catch(activityFailed);
         void refresh();
     }
 

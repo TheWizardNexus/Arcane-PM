@@ -103,7 +103,12 @@ function createTaskActivityPresentation() {
     }
 
     function update(task, current) {
-        const activity = current || task?.nativeActivity;
+        const origin = task?.origin;
+        const saved = task?.nativeActivity;
+        const matchingSaved = origin?.provider === 'codex' && saved?.origin?.provider === 'codex'
+            && Boolean(origin.hostId && origin.threadId)
+            && saved.origin.hostId === origin.hostId && saved.origin.threadId === origin.threadId;
+        const activity = current || (matchingSaved ? saved : null);
         node.hidden = !activity && task?.origin?.provider !== 'codex';
         if (node.hidden) return;
         node.dataset.current = String(Boolean(current));

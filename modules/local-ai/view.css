@@ -7,6 +7,34 @@
     min-inline-size: 0;
 }
 
+.pm-ai-model-progress {
+    display: grid;
+    gap: var(--arcane-space-3);
+    margin-block: var(--arcane-space-3);
+}
+
+.pm-ai-model-progress p {
+    margin: 0 0 var(--arcane-space-2);
+    color: var(--arcane-muted);
+    font-size: .9rem;
+    overflow-wrap: anywhere;
+}
+
+.pm-ai-model-progress progress {
+    display: block;
+    inline-size: 100%;
+    block-size: .7rem;
+    accent-color: var(--arcane-action);
+}
+
+.pm-ai-speech > * + * {
+    margin-block-start: var(--arcane-space-3);
+}
+
+.pm-ai-speech audio {
+    inline-size: 100%;
+}
+
 .pm-local-ai [hidden] {
     display: none;
 }

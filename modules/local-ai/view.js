@@ -1,6 +1,60 @@
+import SpeechPlayback from 'arcane-os/speech-playback';
+
+function createModelProgress(container, label) {
+    const rows = [];
+    container.className = 'pm-ai-model-progress';
+    container.hidden = true;
+
+    function presentRow(index, name, progress) {
+        let row = rows[index];
+        if (!row) {
+            const node = document.createElement('div');
+            const text = document.createElement('p');
+            const bar = document.createElement('progress');
+            node.append(text, bar);
+            container.append(node);
+            row = {node, text, bar};
+            rows.push(row);
+        }
+        const completed = progress?.completed;
+        const total = progress?.total;
+        const unit = progress?.unit;
+        const hasCompleted = Number.isFinite(completed) && completed >= 0;
+        const hasTotal = Number.isFinite(total) && total > 0;
+        const amount = hasCompleted && hasTotal ? `${completed.toLocaleString()} of ${total.toLocaleString()}`
+            : hasCompleted ? completed.toLocaleString() : '';
+        row.text.textContent = `${name}${amount ? ` · ${amount}${unit ? ` ${unit}` : ''}` : ''}${progress?.state === 'cached' ? ' · Stored locally' : ''}`;
+        row.bar.setAttribute('aria-label', name);
+        row.bar.setAttribute('aria-valuetext', row.text.textContent);
+        if (hasCompleted && hasTotal && completed <= total) {
+            row.bar.max = total;
+            row.bar.value = completed;
+        } else {
+            row.bar.removeAttribute('value');
+            row.bar.removeAttribute('max');
+        }
+    }
+
+    function update({active, progress, kind = 'sdk'} = {}) {
+        container.hidden = !active;
+        if (!active) return;
+        const downloading = kind === 'ollama' || progress?.phase === 'download';
+        const heading = kind === 'ollama' ? `${label} · Current download layer`
+            : downloading ? `${label} · Downloading` : `${label} · Preparing`;
+        presentRow(0, heading, kind === 'ollama' ? {...progress, unit: 'bytes'} : progress);
+        const members = kind === 'ollama' ? [] : progress?.members ?? [];
+        for (const [index, member] of members.entries()) {
+            presentRow(index + 1, member.name || `${label} file ${index + 1}`, member);
+        }
+        while (rows.length > members.length + 1) rows.pop().node.remove();
+    }
+
+    return {update};
+}
+
 /** PM preparation and deliberate task-face selection, using injected domain owners. */
 export function mountLocalAIView(container, {
-    localAI, faces, modelServices, decisions, pmData, projectId = null, taskId = null,
+    localAI, faces, modelServices, decisions, speech, pmData, projectId = null, taskId = null,
     onNavigate, onStatus, signal
 } = {}) {
     const page = new AbortController();
@@ -59,8 +113,9 @@ export function mountLocalAIView(container, {
                 </div>
             </section>
             <section class="pm-panel pm-ai-models">
-                <h2>Text model</h2>
+                <h2>Language Model</h2>
                 <p class="pm-ai-status" role="status" data-control="model-status">No model selected.</p>
+                <div data-control="model-progress" hidden></div>
                 <form data-control="model-form">
                     <label class="arcane-field"><span class="arcane-field__label">Run with</span>
                         <select data-control="provider-mode">
@@ -68,7 +123,7 @@ export function mountLocalAIView(container, {
                             <option value="browser">Custom browser CPU model</option>
                             <option value="remote">DigitalOcean serverless · remote</option>
                         </select></label>
-                    <label class="arcane-field" data-control="local-fields"><span class="arcane-field__label">Local model</span>
+                    <label class="arcane-field" data-control="local-fields"><span class="arcane-field__label">Language Model</span>
                         <select data-control="local-model"><option value="">No local models available</option></select></label>
                     <div data-control="browser-fields" hidden>
                         <label class="arcane-field"><span class="arcane-field__label">Model ID</span><input data-control="browser-model" autocomplete="off"></label>
@@ -82,6 +137,7 @@ export function mountLocalAIView(container, {
                     </div>
                     <button class="arcane-button arcane-button--secondary" data-control="select-model">Select model</button>
                 </form>
+                <p class="pm-ai-hint" data-control="model-preference"></p>
                 <div class="pm-actions">
                     <button type="button" class="arcane-button" data-control="load-model" disabled>Load selected model</button>
                     <button type="button" class="arcane-button arcane-button--secondary" data-control="unload-model" disabled>Unload</button>
@@ -92,11 +148,13 @@ export function mountLocalAIView(container, {
         </div>
         <section class="pm-panel pm-ai-decisions">
             <h2>Compare next steps</h2>
+            <label class="arcane-field" data-control="decision-model-field" hidden><span class="arcane-field__label">Jev model</span><select data-control="decision-model"></select></label>
             <div class="pm-actions">
                 <button type="button" class="arcane-button arcane-button--secondary" data-control="load-decisions">Load comparison model</button>
                 <button type="button" class="arcane-button arcane-button--secondary" data-control="unload-decisions">Unload comparison model</button>
             </div>
             <p class="pm-ai-status" role="status" data-control="decision-model-status">Load the local comparison model when you need it. Its download is stored for reuse.</p>
+            <div data-control="decision-model-progress" hidden></div>
             <form data-control="decision-form">
                 <div class="arcane-form-grid">
                     <label class="arcane-field"><span class="arcane-field__label">Current situation</span><textarea data-control="decision-state" rows="4" required></textarea></label>
@@ -133,6 +191,7 @@ export function mountLocalAIView(container, {
                         </div>
                     </div>
                     <p class="pm-ai-status" role="status" data-control="image-model-status">Image generation requires an available local runtime and model.</p>
+                    <div data-control="image-model-progress" hidden></div>
                     <form data-control="face-form">
                         <label class="arcane-field"><span class="arcane-field__label">Face description</span><textarea data-control="face-prompt" rows="4" placeholder="Describe the face you would like to create."></textarea></label>
                         <div class="arcane-form-grid">
@@ -147,6 +206,25 @@ export function mountLocalAIView(container, {
             </div>
             <p class="pm-ai-status" role="status" data-control="face-status">Choose a task to prepare its face.</p>
             <div class="pm-ai-candidates" data-control="candidates"></div>
+        </section>
+        <section class="pm-panel pm-ai-speech">
+            <h2>Local voice · Kokoro</h2>
+            <div class="pm-actions">
+                <button type="button" class="arcane-button arcane-button--secondary" data-control="load-speech">Load local voice</button>
+                <button type="button" class="arcane-button arcane-button--secondary" data-control="unload-speech">Unload local voice</button>
+            </div>
+            <p class="pm-ai-status" role="status" data-control="speech-model-status">Load the local voice when you want to prepare speech.</p>
+            <div data-control="speech-model-progress" hidden></div>
+            <form data-control="speech-form">
+                <label class="arcane-field"><span class="arcane-field__label">Text to speak</span><textarea data-control="speech-text" rows="3"></textarea></label>
+                <div class="arcane-form-grid">
+                    <label class="arcane-field"><span class="arcane-field__label">Voice</span><select data-control="speech-voice"></select></label>
+                    <label class="arcane-field"><span class="arcane-field__label">Speed</span><input data-control="speech-speed" type="number" min="0.1" step="0.1" value="1"></label>
+                </div>
+                <div class="pm-actions"><button class="arcane-button" data-control="prepare-speech">Prepare speech</button><button type="button" class="arcane-button arcane-button--secondary" data-control="cancel-speech">Cancel</button></div>
+            </form>
+            <p class="pm-ai-status" role="status" data-control="speech-status"></p>
+            <audio controls data-control="speech-audio" hidden></audio>
         </section>`;
     root.append(content);
     container.append(root);
@@ -155,11 +233,19 @@ export function mountLocalAIView(container, {
     for (const element of content.querySelectorAll('[data-control]')) {
         controls[element.dataset.control] = element;
     }
+    const languageProgress = createModelProgress(controls['model-progress'], 'Language model');
+    const imageProgress = createModelProgress(controls['image-model-progress'], 'Image model');
+    const decisionProgress = createModelProgress(controls['decision-model-progress'], 'Jev model');
+    const speechProgress = createModelProgress(controls['speech-model-progress'], 'Local voice');
     const imageRuntime = modelServices?.getImageRuntime?.() ?? null;
     let modelState = modelServices?.current?.() ?? {model: null, catalog: []};
     let imageState = imageRuntime?.current?.() ?? {models: [], available: false};
     let faceState = faces?.current?.() ?? {candidates: [], choosingTaskIds: []};
     let decisionState = decisions?.current?.() ?? null;
+    let speechState = speech?.current?.() ?? null;
+    let speechBusy = false;
+    let speechPlayback = null;
+    let modelChoiceEdited = false;
     const decisionOptions = [];
     let decisionOperation = null;
     let decisionModelBusy = false;
@@ -220,12 +306,13 @@ export function mountLocalAIView(container, {
         const decisionModel = decisionState?.model;
         const decisionAvailable = Boolean(decisions && decisionState?.available && !decisionState.closed);
         const decisionLoading = decisionModelBusy || decisionState?.load?.busy
-            || ['loading', 'unloading', 'disposing'].includes(decisionModel?.state);
+            || decisionState?.selecting || ['loading', 'unloading', 'disposing'].includes(decisionModel?.state);
         const decisionReady = decisionModel?.loaded && decisionModel.state === 'ready';
         controls['load-decisions'].disabled = !decisionAvailable || decisionLoading || decisionReady;
         controls['unload-decisions'].disabled = !decisionAvailable || decisionLoading || !decisionModel?.loaded;
+        controls['decision-model'].disabled = !decisions?.select || decisionLoading || Boolean(decisionOperation);
         controls['compare-decisions'].disabled = !decisionAvailable || Boolean(decisionOperation)
-            || decisionState?.status === 'Thinking';
+            || decisionState?.selecting || decisionState?.status === 'Thinking';
         controls['cancel-decisions'].disabled = !decisionOperation;
         controls['decision-state'].readOnly = Boolean(decisionOperation);
         controls['decision-question'].readOnly = Boolean(decisionOperation);
@@ -234,6 +321,14 @@ export function mountLocalAIView(container, {
             option.input.readOnly = Boolean(decisionOperation);
             option.remove.disabled = Boolean(decisionOperation) || decisionOptions.length <= 2;
         }
+        const voiceBusy = speechBusy || speechState?.busy;
+        controls['load-speech'].disabled = !speech || voiceBusy || speechState?.loaded;
+        controls['unload-speech'].disabled = !speech || voiceBusy || !speechState?.loaded;
+        controls['prepare-speech'].disabled = !speechState?.loaded || voiceBusy;
+        controls['cancel-speech'].disabled = !voiceBusy;
+        controls['speech-text'].readOnly = Boolean(voiceBusy);
+        controls['speech-voice'].disabled = !speechState?.loaded || voiceBusy;
+        controls['speech-speed'].disabled = Boolean(voiceBusy);
     }
 
     function selectedProviderLabel(model) {
@@ -245,7 +340,11 @@ export function mountLocalAIView(container, {
     function renderModels(snapshot) {
         if (pageSignal.aborted) return;
         modelState = snapshot;
-        const prior = controls['local-model'].value;
+        const preferred = snapshot.preferredModel;
+        const selected = snapshot.model;
+        const selectedChoice = preferred || selected;
+        const prior = modelChoiceEdited ? controls['local-model'].value
+            : selectedChoice ? `${selectedChoice.providerId}\n${selectedChoice.modelId}` : controls['local-model'].value;
         controls['local-model'].replaceChildren(new Option('Choose a local model', ''));
         for (const provider of snapshot.catalog ?? []) {
             if (provider.localOnly !== true) continue;
@@ -261,6 +360,13 @@ export function mountLocalAIView(container, {
             controls['local-model'].options[0].textContent = 'No local models available';
         }
         const model = snapshot.model;
+        const preferredOption = preferred ? Array.from(controls['local-model'].options).find(function savedChoice(option) {
+            return option.dataset.providerId === preferred.providerId && option.dataset.modelId === preferred.modelId;
+        }) : null;
+        controls['model-preference'].textContent = snapshot.preferenceError
+            ? 'The saved language choice could not be read or saved. You can select a model for this session.'
+            : preferred ? `Saved choice: ${preferredOption?.textContent ?? preferred.modelId}`
+                : 'Select a model to save your language preference. Loading starts only when needed.';
         if (!model) {
             status(controls['model-status'], 'No model selected.');
         } else if (model.error) {
@@ -276,6 +382,7 @@ export function mountLocalAIView(container, {
             : !snapshot.core
                 ? 'Native models need Arcane Core. A browser CPU model is available in the local model list.'
                 : 'Project browsing and local search remain available while a model loads.';
+        languageProgress.update({active: Boolean(model?.busy && model.state !== 'unloading'), progress: model?.progress, kind: model?.progressKind});
         renderImageModels(imageState);
     }
 
@@ -304,6 +411,7 @@ export function mountLocalAIView(container, {
                     ? `${snapshot.selectedModel} · ${snapshot.state}`
                     : 'Load an image model to generate or edit. Its download is stored in this app for reuse.';
         status(controls['image-model-status'], message, load?.busy ? 'working' : load?.error || snapshot.error ? 'error' : 'idle');
+        imageProgress.update({active: Boolean(load?.busy), progress: load?.progress});
         updateControls();
     }
 
@@ -581,6 +689,12 @@ export function mountLocalAIView(container, {
         decisionState = snapshot;
         const model = snapshot?.model;
         const load = snapshot?.load;
+        const choices = snapshot?.choices ?? decisions?.choices?.() ?? [];
+        const prior = snapshot?.selection?.id ?? controls['decision-model'].value;
+        controls['decision-model-field'].hidden = choices.length === 0;
+        controls['decision-model'].replaceChildren();
+        for (const choice of choices) controls['decision-model'].append(new Option(choice.name ?? choice.id, choice.id));
+        controls['decision-model'].value = prior;
         const failed = Boolean(load?.error || model?.error);
         const message = !decisions || !snapshot?.available
             ? 'Next-step comparison needs a connected local runtime. Your preparation note remains available.'
@@ -594,6 +708,7 @@ export function mountLocalAIView(container, {
                             ? 'Unloading the comparison model…'
                             : 'Load the local comparison model when you need it. Its download is stored for reuse.';
         status(controls['decision-model-status'], message, failed ? 'error' : load?.busy ? 'working' : 'idle');
+        decisionProgress.update({active: Boolean(load?.busy), progress: load?.progress ?? model?.progress});
         if (decisionOperation) {
             const progress = snapshot.phase === 'waiting' && !(model?.loaded && model.state === 'ready')
                 ? load?.busy || model?.state === 'loading'
@@ -607,6 +722,96 @@ export function mountLocalAIView(container, {
             status(controls['decision-status'], 'Compare your options when ready.');
         }
         updateControls();
+    }
+
+    function renderSpeechState(snapshot) {
+        if (pageSignal.aborted) return;
+        speechState = snapshot;
+        const prior = controls['speech-voice'].value || snapshot?.defaultVoice || '';
+        controls['speech-voice'].replaceChildren();
+        for (const voice of snapshot?.voices ?? []) {
+            const id = typeof voice === 'string' ? voice : voice.id ?? voice.value;
+            if (id) controls['speech-voice'].append(new Option(typeof voice === 'string' ? voice : voice.name ?? voice.label ?? id, id));
+        }
+        if (!controls['speech-voice'].options.length && snapshot?.defaultVoice) {
+            controls['speech-voice'].append(new Option(snapshot.defaultVoice, snapshot.defaultVoice));
+        }
+        controls['speech-voice'].value = prior;
+        const message = !speech ? 'Local speech is unavailable here.'
+            : snapshot?.error ? 'The local voice could not complete its operation. Try loading it again.'
+                : snapshot?.loaded ? 'Kokoro · Ready and loaded'
+                    : snapshot?.state === 'loading' ? 'Preparing the local voice…'
+                        : snapshot?.state === 'unloading' ? 'Unloading the local voice…'
+                            : 'Load the local voice when you want to prepare speech.';
+        status(controls['speech-model-status'], message, snapshot?.error ? 'error' : snapshot?.busy ? 'working' : 'idle');
+        speechProgress.update({active: snapshot?.state === 'loading', progress: snapshot?.progress});
+        updateControls();
+    }
+
+    async function changeSpeechModel(load) {
+        if (!speech || speechBusy || pageSignal.aborted) return;
+        speechBusy = true;
+        updateControls();
+        try {
+            if (load) await speech.load({signal: pageSignal});
+            else {
+                speechPlayback?.cancel();
+                await speech.unload({signal: pageSignal});
+            }
+        } catch (error) {
+            reportFailure(controls['speech-model-status'], 'The local voice could not finish changing. Try again.', error);
+        } finally {
+            speechBusy = false;
+            if (!pageSignal.aborted) renderSpeechState(speech.current());
+        }
+    }
+
+    function speechPlaybackChanged(detail) {
+        if (pageSignal.aborted) return;
+        controls['speech-audio'].hidden = !detail.hasAudio;
+        const messages = {
+            preparing: 'Thinking · preparing speech.', loading: 'Thinking · preparing speech.',
+            synthesizing: 'Thinking · preparing speech.',
+            ready: 'Speech ready. Use Play to listen.', playing: 'Playing.', paused: 'Paused.',
+            ended: 'Speech finished.', cancelled: 'Speech cancelled.', stopped: 'Speech stopped.',
+            error: 'Speech could not finish. Your text is retained; try again.'
+        };
+        status(controls['speech-status'], messages[detail.state] ?? (detail.producing ? 'Thinking · preparing speech.' : ''),
+            detail.state === 'error' ? 'error' : detail.producing ? 'Thinking' : 'idle');
+    }
+
+    async function prepareSpeech(event) {
+        event.preventDefault();
+        if (!speechState?.loaded || speechBusy || pageSignal.aborted) return;
+        const text = controls['speech-text'].value;
+        if (!text.trim()) {
+            status(controls['speech-status'], 'Enter the text you want to speak.');
+            return;
+        }
+        speechBusy = true;
+        status(controls['speech-status'], 'Thinking · preparing speech.', 'Thinking');
+        updateControls();
+        try {
+            if (!speechPlayback) speechPlayback = new SpeechPlayback({
+                audio: controls['speech-audio'],
+                speech: {
+                    prepareTTSPlayback(payload, requestSignal) {
+                        return speech.synthesize({text: payload.input, voice: payload.voice, speed: payload.speed, signal: requestSignal});
+                    }
+                },
+                textFormat: 'plain',
+                onState: speechPlaybackChanged
+            });
+            await speechPlayback.prepare({
+                parts: [text], voice: controls['speech-voice'].value || speechState.defaultVoice,
+                speed: controls['speech-speed'].valueAsNumber, responseFormat: 'wav', textFormat: 'plain', autoplay: false
+            });
+        } catch (error) {
+            reportFailure(controls['speech-status'], 'Speech could not be prepared. Your text is retained; try again.', error);
+        } finally {
+            speechBusy = false;
+            if (!pageSignal.aborted) updateControls();
+        }
     }
 
     function clearDecisionResult() {
@@ -720,7 +925,7 @@ export function mountLocalAIView(container, {
 
     async function submitDecision(event) {
         event.preventDefault();
-        if (!decisions || decisionOperation || pageSignal.aborted) return;
+        if (!decisions || decisionOperation || decisionState?.selecting || pageSignal.aborted) return;
         const operation = new AbortController();
         const operationSignal = AbortSignal.any([pageSignal, operation.signal]);
         decisionOperation = operation;
@@ -825,6 +1030,7 @@ export function mountLocalAIView(container, {
                     source: browserModel ? {id: browserModel.id, files: browserModel.files} : undefined
                 }, {signal: pageSignal});
             }
+            modelChoiceEdited = false;
         }, 'Selecting model…');
     }
 
@@ -1045,6 +1251,7 @@ export function mountLocalAIView(container, {
         if (disposed) return;
         disposed = true;
         page.abort();
+        speechPlayback?.destroy();
         for (const unsubscribe of subscriptions) unsubscribe();
         for (const image of previews.keys()) releasePreview(image);
         candidates.clear();
@@ -1057,6 +1264,7 @@ export function mountLocalAIView(container, {
         controls.response.textContent = '';
         controls['saved-note'].textContent = '';
         controls['remote-key'].value = '';
+        controls['speech-text'].value = '';
         controls['tool-results'].replaceChildren();
         controls['decision-state'].value = '';
         controls['decision-question'].value = '';
@@ -1070,6 +1278,14 @@ export function mountLocalAIView(container, {
 
     controls['prepare-form'].addEventListener('submit', submitPreparation, {signal: pageSignal});
     controls['model-form'].addEventListener('submit', submitModel, {signal: pageSignal});
+    controls['local-model'].addEventListener('change', function editLanguageChoice() { modelChoiceEdited = true; }, {signal: pageSignal});
+    controls['speech-form'].addEventListener('submit', prepareSpeech, {signal: pageSignal});
+    controls['load-speech'].addEventListener('click', function loadLocalVoice() { void changeSpeechModel(true); }, {signal: pageSignal});
+    controls['unload-speech'].addEventListener('click', function unloadLocalVoice() { void changeSpeechModel(false); }, {signal: pageSignal});
+    controls['cancel-speech'].addEventListener('click', function cancelLocalSpeech() {
+        speechPlayback?.cancel();
+        speech?.cancel();
+    }, {signal: pageSignal});
     controls['face-form'].addEventListener('submit', submitFace, {signal: pageSignal});
     controls['decision-form'].addEventListener('submit', submitDecision, {signal: pageSignal});
     controls['decision-form'].addEventListener('input', comparisonInputChanged, {signal: pageSignal});
@@ -1082,6 +1298,13 @@ export function mountLocalAIView(container, {
         performDecisionModelAction(function activateComparisonModel() {
             return decisions.load({offline: false});
         }, 'Preparing the local comparison model…');
+    }, {signal: pageSignal});
+    controls['decision-model'].addEventListener('change', function selectComparisonModel() {
+        const choiceId = controls['decision-model'].value;
+        performDecisionModelAction(async function changeComparisonModel() {
+            await decisions.select(choiceId, {signal: pageSignal});
+            if (!pageSignal.aborted) clearDecisionResult();
+        }, 'Selecting comparison model…');
     }, {signal: pageSignal});
     controls['unload-decisions'].addEventListener('click', function unloadComparisonModel() {
         performDecisionModelAction(function releaseComparisonModel() {
@@ -1111,7 +1334,7 @@ export function mountLocalAIView(container, {
     }, {signal: pageSignal});
     controls.task.addEventListener('change', changeTask, {signal: pageSignal});
     controls['open-task'].addEventListener('click', function openSelectedTask() {
-        onNavigate?.('task', {projectId, taskId: selectedTaskId});
+        onNavigate?.('task', {projectId: currentTask()?.projectId ?? projectId, taskId: selectedTaskId});
     }, {signal: pageSignal});
     controls['cancel-prepare'].addEventListener('click', function cancelThisPreparation() {
         preparation?.abort();
@@ -1137,6 +1360,7 @@ export function mountLocalAIView(container, {
     if (imageRuntime?.subscribe) subscriptions.push(imageRuntime.subscribe(renderImageModels, {replay: true, signal: pageSignal}));
     if (faces?.subscribe) subscriptions.push(faces.subscribe(renderFaces, {signal: pageSignal}));
     if (decisions?.subscribe) subscriptions.push(decisions.subscribe(renderDecisionState, {signal: pageSignal}));
+    if (speech?.subscribe) subscriptions.push(speech.subscribe(renderSpeechState, {signal: pageSignal}));
     if (localAI?.subscribe) subscriptions.push(localAI.subscribe(function preparationStatusChanged(snapshot) {
         if (preparation) status(controls['prepare-status'], snapshot.message, snapshot.status);
     }, {signal: pageSignal}));
@@ -1148,9 +1372,16 @@ export function mountLocalAIView(container, {
     addDecisionOption();
     addDecisionOption();
     renderDecisionState(decisionState);
+    renderSpeechState(speechState);
     updateControls();
     if (pageSignal.aborted) dispose();
     else {
+        modelServices?.ready?.().catch(function languagePreferenceUnavailable(error) {
+            if (!pageSignal.aborted) {
+                console.error('Arcane PM language preference could not open.', error);
+                renderModels(modelServices.current());
+            }
+        });
         refresh();
         refreshNotes();
         inspectModels();
