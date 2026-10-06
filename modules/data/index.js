@@ -355,6 +355,9 @@ export async function updateTask(id, changes) {
     return updateRecord('task', id, function changesFromCurrentTask(record) {
         const selected = changes(record);
         if (selected && typeof selected.then === 'function') {
+            Promise.resolve(selected).catch(function observeUnsupportedAsyncUpdater(error) {
+                console.error('The asynchronous task updater rejected after returning unsupported input.', error);
+            });
             throw dataError('PM_DATA_INPUT', 'The task updater must return its changes synchronously.');
         }
         return taskChanges(selected);
