@@ -85,7 +85,7 @@ export function createTaskDiscovery({pmData, bridge, signal, onStatus} = {}) {
         onStatus?.('Codex discovery could not finish. Use Find Codex tasks in Connections to retry.');
     }
 
-    function discoverTasks({archived = false, signal: callerSignal} = {}) {
+    function discoverTasks({archived, signal: callerSignal} = {}) {
         lifetimeSignal.throwIfAborted();
         callerSignal?.throwIfAborted();
         if (closed) throw new DOMException('Task discovery is closed.', 'AbortError');
@@ -111,7 +111,9 @@ export function createTaskDiscovery({pmData, bridge, signal, onStatus} = {}) {
     async function discoverWorkspace(operation, archived) {
         const {signal: operationSignal, identity} = operation;
         onStatus?.('Finding Codex projects and tasks…');
-        const result = await bridge.discoverWorkspace({archived, signal: operationSignal});
+        const request = {signal: operationSignal};
+        if (archived !== undefined) request.archived = archived;
+        const result = await bridge.discoverWorkspace(request);
         operationSignal.throwIfAborted();
         if (result.status === 'unavailable' || result.threads?.status === 'unavailable') {
             onStatus?.(result.message || result.threads.message);

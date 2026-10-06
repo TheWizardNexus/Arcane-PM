@@ -40,6 +40,11 @@
     "native": {
         "type": "app",
         "icon": "assets/arcane-pm-icon.png",
+        "window": {
+            "width": 1280,
+            "height": 800,
+            "resizable": true
+        },
         "order": 0,
         "bundledApps": [],
         "localAI": {

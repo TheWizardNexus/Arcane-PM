@@ -363,9 +363,21 @@
 }
 </script>
     <title>Your team · Arcane PM</title>
+    <link rel="icon" href="./assets/arcane-pm-icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./node_modules/arcane-os/runtime/arcane/css/theme.css">
     <script type="module" src="./node_modules/arcane-os/runtime/arcane/modules/ThemeBootstrap.js"></script>
-    <script type="module" async src="/arcane-core.js"></script>
+    <script type="module" async>
+        import {getInstalledCoreClient} from 'arcane-os/core/client';
+
+        const client = getInstalledCoreClient();
+        const runtime = client?.runtime.current();
+        // Native documents already have their Core client before this page runs.
+        if (!client || (runtime?.transport === 'standalone' && !runtime.connected)) {
+            import('/arcane-core.js').catch(function reportCoreBootstrapFailure(error) {
+                console.error('Arcane PM development Core could not load.', error);
+            });
+        }
+    </script>
     <link rel="stylesheet" href="./node_modules/arcane-os/runtime/arcane/css/primitives.css">
     <link rel="stylesheet" href="./app.css">
     <script type="module" src="./modules/App.js"></script>
