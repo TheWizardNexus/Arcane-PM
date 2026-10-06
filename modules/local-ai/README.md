@@ -155,15 +155,16 @@ surface a source error and retain full developer diagnostics instead of sending
 partial source text. An empty retained scope describes that scope only; native
 import coverage remains a separate result. A native task missing its account,
 host or thread association exposes a reconnect action before preparation.
-App-owned system instructions follow the supplied light and dark references:
-distinctive illustrated adult human workers and a project guide, with friendly
-expressive faces, individual hairstyles, softly shaded forms and a tight
-face-and-hair composition with only the tops of the shoulders visible. The actual
-work informs their character, clothing and one subtle accessory. Deep teal, warm ivory,
-muted gold and restrained lavender appear within the clothing and background.
-The instructions specify full color, soft matte shading with rounded facial volume,
-subtle contours, expressive eyes, a collarbone crop and a small margin around the
-complete hairstyle, preserving individual complexion and hair texture.
+App-owned system instructions ask for an original, concrete description of a
+distinctive illustrated adult worker or project guide in declarative prose,
+without a prescribed passage to repeat. The actual work informs the professional
+character and one small meaningful accessory worn near the face or collar.
+Individual facial features, complexion and hair accompany clothing visible at the
+collar and shoulder tops. The supplied light and dark references guide a centered,
+viewer-facing portrait with complete hair, a small margin and only shoulder tops
+visible, simplified illustration, soft matte dimensional shading, expressive eyes
+and a relaxed smile. Deep teal clothing and muted gold accents accompany a plain
+pale mint or lavender circle against warm ivory.
 Initial generation also supplies the native
 image owner's separate `negative_prompt` parameter to discourage photography,
 lettering, labels, palette charts, long torso and hand compositions, decorative
