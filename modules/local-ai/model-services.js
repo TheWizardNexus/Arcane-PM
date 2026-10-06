@@ -77,6 +77,8 @@ export function createPMModelServices(
     let loading = false;
     let loadSettled = Promise.resolve();
     let cancelLoad = null;
+    let imageLoad = null;
+    let imageLoadState = {modelId: null, phase: 'idle', busy: false, error: null};
     let closing = null;
     const projections = new Set();
 
@@ -178,7 +180,10 @@ export function createPMModelServices(
                 ...(native ? {nativeLoaded: currentNativeClient && nativeLoaded} : {})
             };
         }
-        return {model, catalog: catalog(), core: coreState, coreError, retiredModelCleanup, closed};
+        return {
+            model, imageLoad: {...imageLoadState}, catalog: catalog(),
+            core: coreState, coreError, retiredModelCleanup, closed
+        };
     }
 
     function publish() {
@@ -538,6 +543,9 @@ export function createPMModelServices(
             if (selectionRevision === revision && (!native || coreClient === loadClient)) {
                 selectedError = error;
             }
+            if (!currentSignal.aborted || error?.name !== 'AbortError') {
+                globalThis.console?.error('Arcane PM text model loading failed.', error);
+            }
             publish();
             throw error;
         } finally {
@@ -595,6 +603,103 @@ export function createPMModelServices(
         return onnxRuntime;
     }
 
+    function loadImage({model: modelId, offline = true, signal: requestSignal} = {}) {
+        assertOpen();
+        if (imageLoad) {
+            throw serviceError('PM_IMAGE_MODEL_LOADING', 'An image model is already loading.');
+        }
+        const operation = {
+            modelId,
+            signal: AbortSignal.any([operationSignal(requestSignal), coreLifetime.signal]),
+            task: null
+        };
+        imageLoad = operation;
+        imageLoadState = {modelId, phase: 'preparing', busy: true, error: null};
+        operation.task = Promise.resolve().then(
+            function beginImageModelLoad() {
+                return prepareAndLoadImage(operation, offline);
+            }
+        );
+        operation.task.catch(
+            function reportImageModelLoadFailure(error) {
+                if (!operation.signal.aborted || error?.name !== 'AbortError') {
+                    globalThis.console?.error('Arcane PM image model loading failed.', error);
+                }
+            }
+        );
+        publish();
+        return operation.task;
+    }
+
+    async function prepareAndLoadImage(operation, offline) {
+        let projection = null;
+        let failure = null;
+        let result;
+        try {
+            operation.signal.throwIfAborted();
+            const runtime = getImageRuntime();
+            const model = runtime.current().models.find(
+                function selectedImageModel(record) {
+                    return record.id === operation.modelId;
+                }
+            );
+            if (!model) {
+                throw serviceError('PM_IMAGE_MODEL_UNAVAILABLE', 'Choose an available image model before loading it.');
+            }
+            const resources = Object.entries(model.resources ?? {});
+            let resourcePaths;
+            if (resources.length && resources.every(function downloadableResource(entry) {
+                return Boolean(entry[1].url) && !entry[1].path;
+            })) {
+                const source = {
+                    id: model.id,
+                    files: resources.map(function imageResourceFile(entry) {
+                        return {name: entry[1].filename, url: entry[1].url};
+                    })
+                };
+                projection = await prepareImageAssets(
+                    {source, workingDirectory: '.arcane/model-working', offline, signal: operation.signal}
+                );
+                resourcePaths = Object.fromEntries(resources.map(function resourceRole(entry) {
+                    return [entry[0], entry[1].filename];
+                }));
+            }
+            operation.signal.throwIfAborted();
+            imageLoadState = {...imageLoadState, phase: 'loading'};
+            publish();
+            result = await runtime.load({
+                model: model.id,
+                assetProjectionId: projection?.id,
+                resourcePaths,
+                signal: operation.signal
+            });
+            operation.signal.throwIfAborted();
+        } catch (error) {
+            failure = error;
+        } finally {
+            if (projection) {
+                try {
+                    await projection.release();
+                    projections.delete(projection);
+                } catch (error) {
+                    failure = failure
+                        ? new AggregateError([failure, error], 'Image model loading and preparation cleanup failed.')
+                        : error;
+                }
+            }
+            imageLoad = null;
+            imageLoadState = {
+                modelId: operation.modelId,
+                phase: failure ? operation.signal.aborted ? 'cancelled' : 'error' : 'ready',
+                busy: false,
+                error: failure
+            };
+            publish();
+        }
+        if (failure) throw failure;
+        return result;
+    }
+
     async function prepareImageAssets(
         {source, members, workingDirectory, offline = true, signal: requestSignal, onProgress} = {}
     ) {
@@ -641,6 +746,8 @@ export function createPMModelServices(
             async function releasePMModelServices() {
                 await selectionSettled;
                 if (loading) await loadSettled;
+                // The load owner reports failures and releases its own projection.
+                if (imageLoad) await Promise.allSettled([imageLoad.task]);
                 const operations = [releaseSelectedAI(), coreCleanup];
                 if (imageRuntime) {
                     operations.push(imageRuntime.close());
@@ -719,6 +826,7 @@ export function createPMModelServices(
         getAI,
         getModelStore,
         getImageRuntime,
+        loadImage,
         prepareImageAssets,
         getONNXRuntime,
         dispose

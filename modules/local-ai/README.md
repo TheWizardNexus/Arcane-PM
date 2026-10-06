@@ -179,8 +179,10 @@ queue or readiness polling.
 
 `createPMModelServices({getStorage, signal, client})` returns synchronously:
 
-- `current()` / `getStatus()` -> `{model,catalog,core,closed}`. `model` is null
+- `current()` / `getStatus()` -> `{model,catalog,core,imageLoad,closed}`. `model` is null
   or `{providerId,modelId,localOnly,state,loaded,busy,progress,error}`.
+  `imageLoad` contains `{modelId,phase,busy,error}`; its phases are `idle`,
+  `preparing`, `loading`, `ready`, `cancelled` and `error`.
 - `subscribe(listener,{signal})` replays the same snapshot.
 - `inspect({signal})` refreshes the available public Core catalog.
 - `catalog()` returns provider groups and their actual model records.
@@ -191,6 +193,10 @@ queue or readiness polling.
 - `getImageRuntime()` returns the SDK accessor, including an honest unavailable
   state in a browser without Core. `getONNXRuntime()` exposes the SDK's tensor
   accessor, not a PM text pipeline.
+- `loadImage({model,offline = true,signal})` loads an explicit SDK image-catalog
+  model, preparing its complete configured resources through the model store
+  and releasing its temporary projection after native loading settles. The
+  app owner retains its operation, progress and error through page navigation.
 - `prepareImageAssets({source,members,workingDirectory,offline = true,signal,onProgress})`
   prepares SDK-owned temporary native projections from complete cached assets
   or supplied complete Blob members. An explicit `offline: false` permits the
@@ -199,6 +205,13 @@ queue or readiness polling.
   The caller releases its returned
   projection after the native owner takes its retain during load.
 - `dispose()` joins owned cleanup and releases SDK accessors/projections.
+
+Model loading belongs to the app's model owner. Leaving the local preparation
+page releases its controls and subscriptions while an accepted load continues.
+Reopening the page reads the owner's current operation and model state. Model
+replacement, explicit cancellation and app disposal retain their existing
+cancellation boundaries. Page-specific preparation drafts and face candidates
+keep their separate page lifetime.
 
 The local catalog includes Granite 4.1 3B Q4_K_M (`granite-3b`) using
 [IBM's official complete GGUF](https://huggingface.co/ibm-granite/granite-4.1-3b-GGUF/tree/main).

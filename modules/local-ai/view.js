@@ -165,10 +165,10 @@ export function mountLocalAIView(container, {
     }
 
     function reportFailure(target, message, error) {
+        if (error?.name !== 'AbortError') console.error(message, error);
         if (pageSignal.aborted) return;
         status(target, error?.name === 'AbortError' ? 'Cancelled.' : message,
             error?.name === 'AbortError' ? 'cancelled' : 'error');
-        if (error?.name !== 'AbortError') console.error(message, error);
     }
 
     function updateControls() {
@@ -178,13 +178,13 @@ export function mountLocalAIView(container, {
         controls.prepare.disabled = !localAI || !selectedModel || selectedModel.state === 'unavailable' || Boolean(preparation);
         controls['cancel-prepare'].disabled = !preparation;
         controls['select-model'].disabled = !modelServices || modelBusy;
-        controls['load-model'].disabled = !selectedModel || modelBusy || selectedModel.loaded;
+        controls['load-model'].disabled = !selectedModel || modelBusy || selectedModel.busy || selectedModel.loaded;
         controls['unload-model'].disabled = !selectedModel || modelBusy;
         controls['refresh-models'].disabled = modelBusy;
         controls['image-file'].disabled = !hasTask || !faces;
-        controls['load-image'].disabled = !imageRuntime || imageBusy || !controls['image-model'].value
+        controls['load-image'].disabled = !imageRuntime || imageBusy || modelState.imageLoad?.busy || !controls['image-model'].value
             || (imageState.loaded && imageState.selectedModel === controls['image-model'].value);
-        controls['unload-image'].disabled = !imageRuntime || imageBusy || !imageState.selectedModel;
+        controls['unload-image'].disabled = !imageRuntime || imageBusy || modelState.imageLoad?.busy || !imageState.selectedModel;
         controls['generate-face'].disabled = !hasTask || !faces || !imageState.selectedModel || Boolean(faceOperation);
         controls['cancel-face'].disabled = !faceOperation;
         controls.task.disabled = Boolean(preparation || faceOperation || selectingFace || savingNote);
@@ -232,13 +232,14 @@ export function mountLocalAIView(container, {
             : !snapshot.core
                 ? 'Native models need Arcane Core. A browser CPU model is available in the local model list.'
                 : 'Project browsing and local search remain available while a model loads.';
-        updateControls();
+        renderImageModels(imageState);
     }
 
     function renderImageModels(snapshot) {
         if (pageSignal.aborted) return;
         imageState = snapshot;
-        const prior = controls['image-model'].value || snapshot.selectedModel || '';
+        const load = modelState.imageLoad;
+        const prior = controls['image-model'].value || load?.modelId || snapshot.selectedModel || '';
         controls['image-model'].replaceChildren(new Option('Choose an image model', ''));
         for (const model of snapshot.models ?? []) {
             controls['image-model'].append(new Option(model.name ?? model.id, model.id));
@@ -247,14 +248,18 @@ export function mountLocalAIView(container, {
         if (controls['image-model'].options.length === 1) {
             controls['image-model'].options[0].textContent = 'No image models available';
         }
-        const message = snapshot.error
+        const message = load?.busy
+            ? load.phase === 'preparing' ? 'Preparing the selected image model…' : 'Loading the selected image model…'
+            : load?.error
+                ? 'The image model could not be prepared or loaded. Review the connection and selected model, then try again.'
+                : snapshot.error
             ? 'The image model is unavailable. Review its local runtime and try loading again.'
             : snapshot.loaded && snapshot.state === 'ready'
                 ? `${snapshot.selectedModel} · Ready and loaded`
                 : snapshot.selectedModel
                     ? `${snapshot.selectedModel} · ${snapshot.state}`
                     : 'Load an image model to generate or edit. Its download is stored in this app for reuse.';
-        status(controls['image-model-status'], message, snapshot.error ? 'error' : 'idle');
+        status(controls['image-model-status'], message, load?.busy ? 'working' : load?.error || snapshot.error ? 'error' : 'idle');
         updateControls();
     }
 
@@ -592,34 +597,12 @@ export function mountLocalAIView(container, {
         imageBusy = true;
         status(controls['image-model-status'], 'Preparing the selected image model…', 'working');
         updateControls();
-        let projection = null;
         try {
-            const resources = Object.entries(model.resources ?? {});
-            if (resources.length && resources.every(function cachedResource(entry) {
-                return Boolean(entry[1].url) && !entry[1].path;
-            })) {
-                const source = {id: model.id, files: resources.map(function imageResourceFile(entry) {
-                    return {name: entry[1].filename, url: entry[1].url};
-                })};
-                projection = await modelServices.prepareImageAssets(
-                    {source, workingDirectory: '.arcane/model-working', offline: false, signal: pageSignal}
-                );
-                const resourcePaths = Object.fromEntries(resources.map(function resourceRole(entry) {
-                    return [entry[0], entry[1].filename];
-                }));
-                status(controls['image-model-status'], 'Loading the selected image model…', 'working');
-                await imageRuntime.load({model: model.id, assetProjectionId: projection.id, resourcePaths, signal: pageSignal});
-            } else {
-                await imageRuntime.load({model: model.id, signal: pageSignal});
-            }
+            await modelServices.loadImage({model: model.id, offline: false});
             if (!pageSignal.aborted) renderImageModels(imageRuntime.current());
         } catch (error) {
             reportFailure(controls['image-model-status'], 'The image model could not be prepared or loaded. Review the connection and selected model, then try again.', error);
         } finally {
-            if (projection) {
-                try { await projection.release(); }
-                catch (error) { reportFailure(controls['image-model-status'], 'Model preparation cleanup could not finish. Reopen the model controls before trying again.', error); }
-            }
             imageBusy = false;
             if (!pageSignal.aborted) updateControls();
         }
@@ -631,7 +614,7 @@ export function mountLocalAIView(container, {
         status(controls['image-model-status'], 'Unloading image model…', 'working');
         updateControls();
         try {
-            await imageRuntime.unload({signal: pageSignal});
+            await imageRuntime.unload();
             if (!pageSignal.aborted) renderImageModels(imageRuntime.current());
         } catch (error) {
             reportFailure(controls['image-model-status'], 'The image model could not be unloaded. Try again.', error);
@@ -763,10 +746,10 @@ export function mountLocalAIView(container, {
         faceOperation?.abort();
     }, {signal: pageSignal});
     controls['load-model'].addEventListener('click', function loadSelectedTextModel() {
-        performModelAction(function loadModel() { return modelServices.load({offline: false, signal: pageSignal}); }, 'Loading selected model…');
+        performModelAction(function loadModel() { return modelServices.load({offline: false}); }, 'Loading selected model…');
     }, {signal: pageSignal});
     controls['unload-model'].addEventListener('click', function unloadSelectedTextModel() {
-        performModelAction(function unloadModel() { return modelServices.unload({signal: pageSignal}); }, 'Unloading selected model…');
+        performModelAction(function unloadModel() { return modelServices.unload(); }, 'Unloading selected model…');
     }, {signal: pageSignal});
     controls['refresh-models'].addEventListener('click', function refreshAvailableModels() {
         inspectModels(true);
