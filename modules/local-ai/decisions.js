@@ -4,8 +4,8 @@ import {subscribeCoreClient} from 'arcane-os/core/client';
 const LAYA_SOURCE = {
     id: 'onnx-community/laya-typed-decisions-ONNX',
     files: [
-        {name: 'onnx/model.onnx', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx'},
-        {name: 'onnx/model.onnx_data', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx_data'},
+        {name: 'model.onnx', path: 'onnx/model.onnx', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx'},
+        {name: 'model.onnx_data', path: 'onnx/model.onnx_data', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/onnx/model.onnx_data'},
         {name: 'tokenizer.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer.json'},
         {name: 'tokenizer_config.json', url: 'https://huggingface.co/onnx-community/laya-typed-decisions-ONNX/resolve/main/tokenizer_config.json'}
     ]

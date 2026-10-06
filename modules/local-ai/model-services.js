@@ -713,9 +713,10 @@ export function createPMModelServices(
                 modelSource,
                 {signal: currentSignal, offline, onProgress}
             );
+            // Native companion paths belong to PM; the SDK source keeps cache filenames.
             completeMembers = modelSource.files.map(
                 function completeStoredMember(member, index) {
-                    return {path: member.name, file: stored.files[index]};
+                    return {path: source.files[index].path ?? member.name, file: stored.files[index]};
                 }
             );
         }

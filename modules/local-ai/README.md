@@ -155,16 +155,15 @@ surface a source error and retain full developer diagnostics instead of sending
 partial source text. An empty retained scope describes that scope only; native
 import coverage remains a separate result. A native task missing its account,
 host or thread association exposes a reconnect action before preparation.
-App-owned system instructions ask for an original, concrete description of a
-distinctive illustrated adult worker or project guide in declarative prose,
-without a prescribed passage to repeat. The actual work informs the professional
-character and one small meaningful accessory worn near the face or collar.
-Individual facial features, complexion and hair accompany clothing visible at the
-collar and shoulder tops. The supplied light and dark references guide a centered,
-viewer-facing portrait with complete hair, a small margin and only shoulder tops
-visible, simplified illustration, soft matte dimensional shading, expressive eyes
-and a relaxed smile. Deep teal clothing and muted gold accents accompany a plain
-pale mint or lavender circle against warm ivory.
+App-owned system instructions ask for an original, concrete image-generation
+description of an illustrated adult worker or project guide. The guidance focuses
+on visible individual facial features, complexion, hair and one small accessory
+inspired by the work, without biography, symbolic explanation or body-pose
+narrative. The supplied light and dark references guide a centered, viewer-facing
+portrait with complete hair, a small margin and only shoulder tops visible,
+simplified illustration, soft matte dimensional shading and a relaxed friendly
+expression. A deep teal collar and restrained muted gold detail accompany a plain
+pale mint or lavender background. The application owns the circular presentation.
 Initial generation also supplies the native
 image owner's separate `negative_prompt` parameter to discourage photography,
 lettering, labels, palette charts, long torso and hand compositions, decorative
@@ -234,6 +233,10 @@ queue or readiness polling.
   or supplied complete Blob members. An explicit `offline: false` permits the
   SDK model store to acquire a selected missing resource into the shared DBOPFS
   cache. The image model Load action uses that path for configured SDK resources.
+  Each `source.files[]` member uses a single cache `name` and its complete upstream
+  `url`; an optional PM-owned `path` selects the native relative projection path.
+  Without `path`, projection uses the SDK-normalized filename. Complete stored
+  files retain the source descriptor's order through that mapping.
   The caller uses `releaseModelAssets(projection)` after the native owner takes
   its retain during load. That paired method also releases this owner's retained
   projection reference. `prepareImageAssets` remains an alias for existing callers.
@@ -371,8 +374,11 @@ conversation, choose tools for user messages, or change task status.
 PM selects `onnx-community/laya-typed-decisions-ONNX`, revision `main`, dtype
 `fp32`, using the published members `onnx/model.onnx`, adjacent
 `onnx/model.onnx_data`, `tokenizer.json` and `tokenizer_config.json`. The SDK
-stores the complete assets in the shared DBOPFS model cache. Its native owner
-retains the projection while loaded; the browser releases its preparation
+stores the complete assets in the shared DBOPFS model cache under single filenames
+`model.onnx`, `model.onnx_data`, `tokenizer.json` and `tokenizer_config.json`.
+PM separately retains the native `onnx/` companion paths in its source descriptor
+and supplies those paths with the complete stored files to the SDK projection.
+Its native owner retains the projection while loaded; the browser releases its preparation
 ownership after native loading settles. Cached-only preparation is the API
 default. A working offline comparison also requires the installed native
 runtime and those complete cached assets; source integration alone does not
