@@ -259,6 +259,10 @@ html {
 }
 
 .pm-theme-control {
+    --theme-switcher-radius: .65rem;
+    --theme-switcher-option-radius: .5rem;
+    --theme-switcher-font: 400 1rem/1.25 Arial, "Helvetica Neue", sans-serif;
+    --theme-switcher-background: transparent;
     --app-bar-accent: light-dark(var(--arcane-secondary), var(--arcane-action));
     --app-bar-active-text: light-dark(var(--accent-color), var(--arcane-action-text));
     --app-bar-border: var(--arcane-border);
