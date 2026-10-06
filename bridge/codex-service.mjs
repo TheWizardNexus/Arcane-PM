@@ -220,13 +220,6 @@ export function createCodexService(options = {}) {
         return {status: 'available', threadId: result.thread.id, thread: result.thread, acknowledgment: result, observedAt: new Date().toISOString()};
     }
 
-    async function ensureResumed(threadId, signal) {
-        // Resume belongs to this send, including its cancellation. Native state
-        // can change independently between sends, so no loaded-state cache is used.
-        await codex.request('thread/resume', {threadId, excludeTurns: true}, {signal, mutation: true});
-        signal?.throwIfAborted();
-    }
-
     async function createTask(parameters, {signal} = {}) {
         if (codex.state !== 'connected') return unavailable();
         const input = taskInput(parameters);
@@ -251,13 +244,35 @@ export function createCodexService(options = {}) {
     async function continueTask(parameters, {signal} = {}) {
         if (codex.state !== 'connected') return unavailable();
         const input = taskInput(parameters);
-        const {content, input: originalInput, ...turnParameters} = parameters;
-        await ensureResumed(parameters.threadId, signal);
-        const result = await codex.request('turn/start', {...turnParameters, input}, {signal, mutation: true});
-        return acceptedTurn(parameters.threadId, result);
+        const {content, input: originalInput, identity, ...turnParameters} = parameters;
+        const target = identity === undefined ? null : codex.matchIdentity(identity);
+        if (identity !== undefined && !target) return targetChanged();
+        let resumeAcknowledgment;
+        try {
+            // Resume belongs to this send. Both queued writes use the same
+            // selected destination; native loaded state is never cached.
+            resumeAcknowledgment = await codex.request('thread/resume', {
+                threadId: parameters.threadId, excludeTurns: true
+            }, {signal, mutation: true, selectedIdentity: target});
+            const result = await codex.request('turn/start', {...turnParameters, input}, {
+                signal, mutation: true, selectedIdentity: target
+            });
+            return {
+                ...acceptedTurn(parameters.threadId, result), resumeAcknowledgment,
+                ...(target ? {identity: target} : {})
+            };
+        } catch (error) {
+            if (error.code === 'PM_CODEX_TARGET_CHANGED' && resumeAcknowledgment === undefined) return targetChanged();
+            throw new CoreError({
+                ...serializeCoreError(error), threadId: parameters.threadId,
+                ...(target ? {identity: target} : {}),
+                ...(resumeAcknowledgment === undefined ? {} : {resumeAcknowledgment})
+            });
+        }
     }
 
     function sendHandoff(parameters, context) {
+        if (!parameters.identity) return targetChanged();
         return continueTask(parameters, context);
     }
 

@@ -62,8 +62,8 @@ initial status read and subscriptions; disposal does not close the shared client
 | `observeHookState(listener, {signal})` | Receiver startup/drain state events; no source activity or native connection claim. |
 | `resumeThread({threadId, signal})` | Native resume; required before continuing a thread that is not loaded by this connection. It is separate from a read. |
 | `createTask({cwd, content, signal})` | Native thread creation and initial turn; new PM-created tasks select `gpt-6-astra` / `ultra`. |
-| `continueTask({threadId, content, signal})` | Resume and submit the complete supplied content to that thread. |
-| `sendHandoff({threadId, content, signal})` | Same destination operation with exact prepared text. An explicit typed `input` array may be supplied instead of `content`. |
+| `continueTask({threadId, content, identity?, signal})` | Resume and submit the complete supplied content to that thread. A supplied identity binds both native operations to that selection. |
+| `sendHandoff({threadId, content, identity, signal})` | Resume and send exact prepared text through the selected connection. An explicit typed `input` array may be supplied instead of `content`. |
 | `archiveThread({threadId, identity, signal})` | Native archive, including Codex's documented attempt to archive descendants. It does not remove PM records or working files. |
 | `restoreThread({threadId, identity, signal})` | Native unarchive of the selected thread; does not resume it or restore descendants. |
 | `deleteThread({threadId, identity, signal})` | Permanent native deletion of the selected stored thread and its known spawned subtree. PM records remain independent. |
@@ -236,6 +236,27 @@ result contains `accepted:true`, `status:'accepted'`, `threadId`, `turnId`,
 the turn, not that work completed or that the user read it. Native notifications
 carry progress, approval/input requests and completion. A lost response after a
 write has an unknown outcome and is never automatically resent.
+
+Handoff sends require the fresh selected `readThread` identity envelope:
+`{connectionId,originIdentity:{provider,accountId,hostId}}`. The bridge consumes
+this separate routing metadata without including it in native parameters. It
+matches the current connection before dispatch and immediately before each
+queued `thread/resume` and `turn/start` write. Generic `continueTask` callers
+may supply the same identity; their existing identity-free call remains available.
+Successful bound sends return that operation's `identity` and the complete
+`resumeAcknowledgment` beside the unchanged turn acknowledgment.
+
+A missing or changed handoff selection before resume returns
+`{status:'unavailable',accepted:false,reason:'target-changed',message}`. If resume
+succeeds and the turn later fails, the error retains its original code and
+outcome with the selected `threadId`, bound `identity`, and complete
+`resumeAcknowledgment`. A queued turn rejected for a changed destination has
+`code:'PM_CODEX_TARGET_CHANGED'` and `outcome:'not-sent'`; that outcome describes
+the turn, while the attached acknowledgment records the earlier resume.
+Cancellation or transport loss after a written request preserves uncertainty.
+Workflow compares the returned operation identity with its recorded selection
+and owns the user-facing handoff outcome. Neither response implies a completed
+turn or a human acknowledgment.
 
 Core cancellation or transport loss can arrive before a host acknowledgment;
 the browser preserves that uncertainty for an invoked mutation. A native
