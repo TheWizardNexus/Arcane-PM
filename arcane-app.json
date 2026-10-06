@@ -24,6 +24,7 @@
         "localAI": {
             "runtimes": [
                 {"id": "ollama"},
+                {"id": "onnx"},
                 {
                     "id": "stable-diffusion.cpp",
                     "version": "master-929-3f8527a",
@@ -34,7 +35,8 @@
         },
         "services": [
             {"module": "bridge/codex-service.mjs", "options": {}},
-            {"module": "bridge/hooks-service.mjs", "options": {}}
+            {"module": "bridge/hooks-service.mjs", "options": {}},
+            {"module": "native/decision-service.mjs", "options": {}}
         ]
     },
     "requirements": {

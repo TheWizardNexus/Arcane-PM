@@ -14,6 +14,9 @@
         "id": "ollama"
       },
       {
+        "id": "onnx"
+      },
+      {
         "id": "stable-diffusion.cpp",
         "version": "master-929-3f8527a",
         "backend": "auto",
