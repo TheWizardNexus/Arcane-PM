@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storage &amp; cleanup · Arcane PM Docs</title>
+<meta name="description" content="Application records and project working files have different homes, lifecycles, and reasons to stay.">
+<script src="../shared/theme.js"></script>
+<link rel="stylesheet" href="../shared/site.css">
+<link rel="stylesheet" href="docs.css">
+<script src="../shared/shell.js" defer></script>
+<script src="docs.js" defer></script>
+</head>
+<body data-site-root="../" data-section="docs">
+<header data-site-header><a href="../index.html">Arcane PM</a> <a href="index.html">Docs</a> <a href="search.html">Search</a></header>
+<main id="main-content" tabindex="-1">
+<div class="docs-layout">
+<aside class="docs-sidebar" aria-label="Documentation navigation">
+<details class="docs-menu" open>
+<summary>Browse docs <span>Storage &amp; cleanup</span></summary>
+<nav class="docs-nav" aria-label="Documentation topics">
+<a class="docs-search-link" href="search.html">Search docs</a>
+<section><h2>Start here</h2><ul><li><a href="index.html">Overview</a></li><li><a href="concepts.html">Core concepts</a></li></ul></section>
+<section><h2>Build your workspace</h2><ul><li><a href="project-bridge.html">Project bridge</a></li><li><a href="tasks.html">Task records</a></li><li><a href="handoffs.html">Context handoffs</a></li><li><a href="local-ai.html">Local AI</a></li></ul></section>
+<section><h2>Reference</h2><ul><li><a href="ui-components.html">UI components</a></li><li><a href="storage.html" aria-current="page">Storage &amp; cleanup</a></li><li><a href="handoff-example.html">Handoff example</a></li></ul></section>
+</nav>
+</details>
+<div class="docs-guide"><img src="../assets/project-guide.png" alt="" width="56" height="56"><p>Start with a familiar task.<a href="handoff-example.html">Follow the example →</a></p></div>
+</aside>
+<article class="doc-article" data-doc-article>
+<div class="breadcrumbs"><a href="index.html">Docs</a> / Storage &amp; cleanup</div>
+<span class="doc-label">Proposed storage model</span>
+<h1>Keep files with their owner.</h1>
+<p class="lede">Application records and project working files have different homes, lifecycles, and reasons to stay.</p>
+<h2 id="ownership">File ownership</h2>
+<table class="doc-table"><thead><tr><th scope="col">Owner</th><th scope="col">Intended content</th></tr></thead><tbody><tr><td>DBOPFS</td><td>Arcane PM application records and model assets.</td></tr><tr><td>Project folders</td><td>Working documents, source files, and other files used by the project’s normal tools.</td></tr><tr><td>Codex</td><td>Native conversations and its own project-access state.</td></tr></tbody></table>
+<p>A task record retains the assignment, decisions, open questions, selected originals, prepared results, and actual delivery state. Commentary and source content keep separate roles.</p>
+<h2 id="archive">Archive a task</h2>
+<p>Archiving is intended to remove a task from the active view while keeping its record retrievable. Original project files and Codex chats remain preserved. An archived label does not mean the task’s working files are disposable.</p>
+<h2 id="cleanup">Review disposable files</h2>
+<p>Deletion is a separate action for specifically selected generated material whose purpose has ended. The interface should identify what will be removed and what remains. Files still needed by another task stay with their owner.</p>
+<p>The application root remains the repository root. The intentionally public website and documentation live in <code>site/</code>. Application records and private working content do not belong in that public directory.</p>
+<p>The exact storage layout, persistence behavior, model-asset handling, and any import or export operations remain to be documented from their implementation.</p>
+<nav class="doc-pagination" aria-label="Article navigation"><a href="ui-components.html"><small>Previous</small>← UI components</a><a href="index.html"><small>Back to</small>Overview →</a></nav>
+</article>
+<nav class="page-contents" aria-label="On this page"><p>On this page</p><ul><li><a href="#ownership">File ownership</a></li><li><a href="#archive">Archive a task</a></li><li><a href="#cleanup">Review disposable files</a></li></ul></nav>
+</div>
+</main>
+<footer data-site-footer><p>Arcane PM by TWiN · Application under development</p></footer>
+</body>
+</html>
+

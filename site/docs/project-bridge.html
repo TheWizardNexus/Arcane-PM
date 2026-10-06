@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project bridge · Arcane PM Docs</title>
+<meta name="description" content="A decoupled bridge is intended to connect Arcane PM’s task context with Codex through supported public interfaces.">
+<script src="../shared/theme.js"></script>
+<link rel="stylesheet" href="../shared/site.css">
+<link rel="stylesheet" href="docs.css">
+<script src="../shared/shell.js" defer></script>
+<script src="docs.js" defer></script>
+</head>
+<body data-site-root="../" data-section="docs">
+<header data-site-header><a href="../index.html">Arcane PM</a> <a href="index.html">Docs</a> <a href="search.html">Search</a></header>
+<main id="main-content" tabindex="-1">
+<div class="docs-layout">
+<aside class="docs-sidebar" aria-label="Documentation navigation">
+<details class="docs-menu" open>
+<summary>Browse docs <span>Project bridge</span></summary>
+<nav class="docs-nav" aria-label="Documentation topics">
+<a class="docs-search-link" href="search.html">Search docs</a>
+<section><h2>Start here</h2><ul><li><a href="index.html">Overview</a></li><li><a href="concepts.html">Core concepts</a></li></ul></section>
+<section><h2>Build your workspace</h2><ul><li><a href="project-bridge.html" aria-current="page">Project bridge</a></li><li><a href="tasks.html">Task records</a></li><li><a href="handoffs.html">Context handoffs</a></li><li><a href="local-ai.html">Local AI</a></li></ul></section>
+<section><h2>Reference</h2><ul><li><a href="ui-components.html">UI components</a></li><li><a href="storage.html">Storage &amp; cleanup</a></li><li><a href="handoff-example.html">Handoff example</a></li></ul></section>
+</nav>
+</details>
+<div class="docs-guide"><img src="../assets/project-guide.png" alt="" width="56" height="56"><p>Start with a familiar task.<a href="handoff-example.html">Follow the example →</a></p></div>
+</aside>
+<article class="doc-article" data-doc-article>
+<div class="breadcrumbs"><a href="index.html">Docs</a> / Project bridge</div>
+<span class="doc-label">Proposed integration</span>
+<h1>Connect projects. Keep ownership clear.</h1>
+<p class="lede">A decoupled bridge is intended to connect Arcane PM’s task context with Codex through supported public interfaces.</p>
+<p>Arcane PM owns assignments, preparation, decisions, and its surrounding interface. Codex retains ownership of native project access, conversations, and execution. Working files remain with their system project folders.</p>
+<h2 id="flow">The intended flow</h2>
+<ol><li>Choose the destination project and task.</li><li>Prepare the assignment, decisions, open questions, and complete selected sources.</li><li>Send through the supported bridge.</li><li>Record the destination’s actual acceptance or failure response.</li></ol>
+<p>A destination that is unavailable leaves the handoff ready, with its prepared content available. Acceptance, reading, work starting, and completion remain distinct outcomes.</p>
+<h2 id="accounts">Account context belongs to its owner</h2>
+<p>An Arcane PM account switch changes the context used by Arcane PM. Native Codex access has its own state. The application should show both accurately; switching one is not evidence that the other has changed identity or signed in.</p>
+<h2 id="contract">Implementation boundary</h2>
+<p>The bridge is a proposed integration. Its concrete public interface, supported operations, and platform availability must be established before an executable integration guide can describe them. Windows, Linux, and macOS are the intended desktop targets, with host adaptation only where needed.</p>
+<p>Start with a complete <a href="handoffs.html">context handoff</a>; keep it useful independently of its delivery mechanism.</p>
+<nav class="doc-pagination" aria-label="Article navigation"><a href="concepts.html"><small>Previous</small>← Core concepts</a><a href="tasks.html"><small>Next page</small>Task records →</a></nav>
+</article>
+<nav class="page-contents" aria-label="On this page"><p>On this page</p><ul><li><a href="#flow">The intended flow</a></li><li><a href="#accounts">Account context</a></li><li><a href="#contract">Implementation boundary</a></li></ul></nav>
+</div>
+</main>
+<footer data-site-footer><p>Arcane PM by TWiN · Application under development</p></footer>
+</body>
+</html>
+
