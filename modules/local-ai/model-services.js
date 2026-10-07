@@ -717,6 +717,11 @@ export function createPMModelServices(
         return activeAI;
     }
 
+    function getModelController() {
+        return selection?.providerId === BROWSER_PROVIDER
+            ? activeAI?.llm ?? null : null;
+    }
+
     function getImageRuntime() {
         assertOpen();
         imageRuntime ??= createCoreImageRuntime(
@@ -1071,6 +1076,7 @@ export function createPMModelServices(
         load,
         unload,
         getAI,
+        getModelController,
         getModelStore,
         getImageRuntime,
         loadImage,

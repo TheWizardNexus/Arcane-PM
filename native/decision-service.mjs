@@ -19,6 +19,9 @@ export function createPMDecisionService(options = {}, {appRoot, signal} = {}) {
                 ...context,
                 emit: function emitDecisionState(event, snapshot) {
                     context.emit(event === 'decisions.state' ? 'pm.decisions.state' : event, snapshot);
+                    if (event === 'decisions.state') {
+                        context.emit(event, snapshot);
+                    }
                 }
             }
         );
@@ -110,6 +113,7 @@ export function createPMDecisionService(options = {}, {appRoot, signal} = {}) {
         current: engine.current,
         dispose,
         methods: {
+            'decisions.status': engine.current,
             'pm.decisions.status': engine.current,
             'pm.decisions.load': load,
             'pm.decisions.evaluate': evaluate,

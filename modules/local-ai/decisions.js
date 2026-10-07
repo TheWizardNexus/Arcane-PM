@@ -112,6 +112,10 @@ export function createPMDecisionController({modelServices, signal, client} = {})
         return DECISION_CHOICES.map(function decisionChoice(choice) { return {...choice}; });
     }
 
+    function getBrowserModel() {
+        return browserModel;
+    }
+
     function publish(changes) {
         if (changes) state = {...state, ...changes};
         if (!eventsDisposed) events.dispatch('arcane-pm.decisions.changed', current());
@@ -634,5 +638,5 @@ export function createPMDecisionController({modelServices, signal, client} = {})
     else stopInstallation = subscribeCoreClient(acceptCore, {signal: lifetimeSignal, emitCurrent: true});
     lifetimeSignal.addEventListener('abort', dispose, {once: true});
     if (lifetimeSignal.aborted) dispose();
-    return {current, subscribe, choices, select, load, unload, evaluate, cancel, dispose};
+    return {current, subscribe, choices, getBrowserModel, select, load, unload, evaluate, cancel, dispose};
 }

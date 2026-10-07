@@ -36,6 +36,41 @@ original text remains a separate unchanged model message; field descriptions
 remain in application-authored control messages. Temporary preparation inputs
 and responses are released after their operation.
 
+## Existing-owner model observation
+
+The published SDK `0.85.0` observation API attaches to PM's existing renderer
+owners after the selected Core client's sticky `core.ready` event. The
+composition supplies the shared AIRuntimeState module, its existing image
+runtime, the current browser decision instance when one exists, and the browser
+text AI's actual `llm` ModelController when one exists. The read-only
+`decisions.getBrowserModel()` and `modelServices.getModelController()` accessors
+return those current instances without creating or loading anything.
+
+Core or model-owner replacement closes the previous attachment and attaches
+the current owners. Ordinary unload preserves observation of a retained owner.
+Attachment readiness does not delay rendering, model loading or user actions.
+Application disposal closes its observations and joins their cleanup alongside
+the existing dependent cleanup. Observation errors remain complete developer
+diagnostics; they do not enter notes or saved chat history.
+
+The native PM decision service also exposes the read-only `decisions.status`
+alias and preserves the SDK's `decisions.state` event alongside the existing
+`pm.decisions.state` event. Both refer to the same existing engine and complete
+snapshot. The SDK's generated observer can therefore select that service and
+observe its actual `pm.decisions.*` calls while PM retains its load, projection
+and evaluation ownership.
+
+An app-scoped capture client connects to the existing Core listener and calls
+`subscribeModelObservation` before the selected operation. Its `onState`
+receives current owner snapshots; explicitly selected `onDiagnostic` receives
+live failed Core frames with their actual correlation identities. Preserve the
+baseline, ordered events and post-operation status before unloading: a retained
+old error alone does not identify a new failure. Closing the capture client
+closes observation only. This composition provides diagnostic access;
+successful inference remains a separate actual built-app outcome.
+
+Public reference: [existing-owner model observation](https://github.com/TheWizardNexus/arcane-os-sdk/blob/0.85.0/docs/reference/model-observation.md).
+
 ## Language model selection and preparation
 
 `modelServices.catalog()` includes these published local Ollama choices:
