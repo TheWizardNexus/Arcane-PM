@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "appId": "arcane-pm",
   "appVersion": "0.1.0",
-  "sdkVersion": "0.86.1",
+  "sdkVersion": "0.87.0",
   "revision": "development",
   "mode": "development",
   "assets": [
@@ -113,6 +113,7 @@
     "/node_modules/arcane-os/browser-runtime/dependencies/ws-share/WS.js",
     "/node_modules/arcane-os/browser-runtime/dependencies/ws-share/licence.md",
     "/node_modules/arcane-os/browser-runtime/dependencies/ws-share/package.json",
+    "/node_modules/arcane-os/browser-runtime/document-acquisition.mjs",
     "/node_modules/arcane-os/browser-runtime/dom-event-instrumentation.mjs",
     "/node_modules/arcane-os/browser-runtime/event-manager.mjs",
     "/node_modules/arcane-os/browser-runtime/logging.mjs",
