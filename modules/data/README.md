@@ -517,10 +517,20 @@ available, while cross-document notifications are unavailable.
 `changedFields` names the explicitly authored fields in an accepted update,
 including those returned by a synchronous task updater. Project `name` and
 `description`, and task `title`, `assignment` and `projectId`, are included only
-when their accepted scalar value differs from the latest stored value. This
-lets automatic preparation retain a settled result through an unchanged content
-save without retaining old content itself. Other explicitly supplied fields are
-included even when their value matches the previous value. The implicit
+when their accepted scalar value differs from the latest stored value. Task
+`nextAction`, `decisions`, `openQuestions`, `observedEvidence` and `attention`
+also appear only when their accepted value differs. `nextAction` uses exact
+string equality. Decision and question arrays compare complete strings in order,
+including array length and index presence. Evidence arrays compare their ordered
+records' exact `message`, `observedAt` and `sourceRef` fields; attention compares
+`null` or its exact `message`, `requestedAt` and `sourceRef` fields. Record key
+order is irrelevant; missing fields differ from `null`, and historical extra
+keys or unsupported shapes count as changes. These comparisons affect only event
+metadata: accepted content, writes, `updatedAt` and authored revision counters
+retain their existing behavior. Automatic preparation can retain a settled
+result through an unchanged content save without retaining old content itself.
+Other explicitly supplied fields are included even when their value matches
+the previous value. The implicit
 `updatedAt` timestamp is excluded. Face association emits `['faceRef']`, native
 observation emits `['nativeActivity']`, and archive/restore emits `['archivedAt']`.
 Creation and removal use `null`; their action already describes the lifecycle.

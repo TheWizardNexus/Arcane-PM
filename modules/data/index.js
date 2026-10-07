@@ -378,7 +378,8 @@ function updateRecord(recordType, id, changes, action = 'updated') {
             ? ['name', 'description']
             : ['title', 'assignment', 'projectId'];
         const changedFields = Object.keys(selectedChanges).filter(function changedAuthoredField(field) {
-            return !contentFields.includes(field) || selectedChanges[field] !== record[field];
+            if (contentFields.includes(field)) return selectedChanges[field] !== record[field];
+            return recordType !== 'task' || taskWorkFieldChanged(field, record[field], selectedChanges[field]);
         });
         for (const field of contentFields) {
             if (!changedFields.includes(field)) continue;
@@ -390,6 +391,41 @@ function updateRecord(recordType, id, changes, action = 'updated') {
         await db.set(tables[recordType], fileName(id), record);
         publishChange(recordType, action, id, record, changedFields);
         return structuredClone(record);
+    });
+}
+
+function taskWorkFieldChanged(field, previous, next) {
+    switch (field) {
+        case 'nextAction': return previous !== next;
+        case 'attention':
+            if (previous === null || next === null) return previous !== next;
+            return taskWorkRecordChanged(previous, next, 'requestedAt');
+        case 'decisions':
+        case 'openQuestions':
+        case 'observedEvidence': break;
+        default: return true;
+    }
+    if (!Array.isArray(previous) || !Array.isArray(next) || previous.length !== next.length
+        || Object.keys(previous).length !== Object.keys(next).length) return true;
+    for (let index = 0; index < next.length; index++) {
+        const present = Object.hasOwn(next, index);
+        if (Object.hasOwn(previous, index) !== present) return true;
+        if (!present) continue;
+        if (field === 'observedEvidence') {
+            if (taskWorkRecordChanged(previous[index], next[index], 'observedAt')) return true;
+        } else if (previous[index] !== next[index]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function taskWorkRecordChanged(previous, next, timeField) {
+    const fields = ['message', timeField, 'sourceRef'];
+    if (!previous || typeof previous !== 'object' || Array.isArray(previous)
+        || Object.keys(previous).length !== fields.length) return true;
+    return fields.some(function changedTaskWorkMember(field) {
+        return !Object.hasOwn(previous, field) || previous[field] !== next[field];
     });
 }
 
