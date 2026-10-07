@@ -271,6 +271,16 @@ export function createPMModelServices(
     }
 
     function publish() {
+        if (selectedError && !closed && !selecting && selection?.providerId === BROWSER_PROVIDER) {
+            const browserState = activeAI?.status().llm;
+            if (browserState?.provider === selection.providerId
+                && browserState.model?.id === selection.modelId
+                && browserState.state === 'ready' && browserState.loaded === true
+                && browserState.error === null) {
+                // A rejected action does not invalidate the controller's current ready model.
+                selectedError = null;
+            }
+        }
         const snapshot = getStatus();
         if (!eventsDisposed) {
             events.dispatch('pm.models.changed', snapshot);
