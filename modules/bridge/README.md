@@ -13,7 +13,7 @@ search and preparation remain available independently.
 ```js
 const bridge = createCodexBridge({coreClient});
 const view = mountConnectionsView(container, {
-    bridge, pmData, projectId, connectCodex, discoverTasks, onNavigate, onStatus, signal
+    bridge, pmData, projectId, taskDiscovery, connectCodex, discoverTasks, onNavigate, onStatus, signal
 });
 ```
 
@@ -160,6 +160,31 @@ The application-owned `discoverTasks` callback composes broad discovery and
 idempotent Data mapping. Connections consumes the returned wrapper, and exact
 ID lookup retains the same catalog for its deliberate Add action. That action
 also uses `pmData.syncNativeDiscovery`; it has no competing project creator.
+
+Connections also observes the application-owned `taskDiscovery.subscribe`
+current replay. Its `{running,closed,latest,failure}` state retains the latest
+mapping across page navigation while another discovery runs. `latest` contains
+`{identity,archived,workspace,result,error,current}`: `workspace` is the unchanged
+native discovery wrapper and `result` is the complete Data mapping, including
+accepted partial work carried by `error.discoveryResult`. `failure` separately
+retains `{identity,archived,workspace,error,current}` when an attempt fails or
+native discovery is unavailable before mapping; native unavailability has
+`error:null`. A later successful mapping clears the older failure. Connection
+retirement marks retained evidence `current:false` without treating it as a new
+observation or removing saved records.
+
+The view shows accepted and newly created record counts, selected archive scope,
+separate task/project/assignment coverage, every unresolved association and its
+candidate PM IDs, record failures, and native archive conflicts. Original native
+names are indexed for display without altering the workspace or choosing between
+conflicting project namespaces. App-owned explanations remain separate from the
+complete technical errors retained in developer diagnostics. Each current task
+review uses the existing exact-ID lookup and association actions. Retired results
+remain visible with task review unavailable until a current discovery replaces
+them. Opening or replaying this view initiates no discovery, mapping, polling or
+storage write; its subscription ends with the page. Manual discovery and exact
+lookup keep their existing returned native payloads and behavior.
+
 Saved tasks match by provider and exact nonblank host and thread IDs, independent
 of their historical observing account. One match opens that existing PM record;
 multiple matches present explicit row choices, including when Data returns
