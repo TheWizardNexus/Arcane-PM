@@ -55,8 +55,9 @@ The application uses plain HTML, CSS, and JavaScript with the published `arcane-
 
 The browser PWA implementation is available; actual browser installation remains unverified. Native Codex access, native ONNX execution, and native image generation require the running Arcane PM host. The static PWA does not supply that host. The private application package is `arcane-pm-app`; the public reusable npm package, its installation contract, and callable API remain separate work.
 
-After refreshing the published SDK, close the existing packaged app normally
-and run `npm run import-map` before selecting another package. The SDK generator
+Close the existing packaged app normally and wait for its shutdown to complete
+before refreshing the published SDK. Then run `npm run import-map` before
+selecting another package. The SDK generator
 updates the canonical map, managed HTML entry, and offline resources. Review and
 commit those generated files with the dependency adoption. When adopting a new
 browser export, inspect its generated bare-module mapping as part of that source
