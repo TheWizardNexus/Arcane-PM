@@ -237,6 +237,11 @@ async function openProjectInventory() {
         presentProjects();
     } catch (error) {
         if (lifetime.signal.aborted) return;
+        if (error.code === 'PM_DATA_RECORD_UNREADABLE') {
+            for (const project of error.records) retainProject(project.id, project);
+            for (const [id, record] of initialProjectChanges) retainProject(id, record);
+            presentProjects();
+        }
         initialProjectChanges = null;
         console.error('Arcane PM project list could not be opened.', error);
         onStatus('Local projects could not be opened. Reopen the page to retry.');
