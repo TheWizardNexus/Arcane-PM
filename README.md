@@ -55,6 +55,14 @@ The application uses plain HTML, CSS, and JavaScript with the published `arcane-
 
 The browser PWA implementation is available; actual browser installation remains unverified. Native Codex access, native ONNX execution, and native image generation require the running Arcane PM host. The static PWA does not supply that host. The private application package is `arcane-pm-app`; the public reusable npm package, its installation contract, and callable API remain separate work.
 
+After refreshing the published SDK, close the existing packaged app normally
+and run `npm run import-map` before selecting another package. The SDK generator
+updates the canonical map, managed HTML entry, and offline resources. Review and
+commit those generated files with the dependency adoption. When adopting a new
+browser export, inspect its generated bare-module mapping as part of that source
+review. If the published generator omits it, request the correction from the SDK
+owner and adopt its publication through the same workflow.
+
 On Windows, run `npm run build:windows` to build the native application. Close the existing packaged app normally before rebuilding. The workflow retains one completed app under `build/windows-x64/` and records its location in `build/windows-x64/current.json`. A replacement uses temporary build staging; successful completion removes the older app and staging, while a failed replacement preserves the previous completed app and removes its partial output. User profiles, saved data, models, and reusable runtime caches remain in their existing locations. Complete build diagnostics are saved under `output/foundation/`.
 
 When project hooks use the native relay, refresh its generated context after
