@@ -1215,6 +1215,10 @@ a.pm-task-title:hover {
     gap: var(--arcane-space-4);
 }
 
+.pm-detail-header .pm-task-face > img {
+    border-radius: inherit;
+}
+
 .pm-detail-header > :not(.pm-task-face) {
     flex: 1 1 14rem;
     min-inline-size: 0;
