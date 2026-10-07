@@ -1317,78 +1317,74 @@ a.pm-task-title:hover {
     }
 }
 
-/* At compact desktop widths, the empty board retains its fourth-column guide. */
-@media (min-width: 76rem) and (max-width: 92rem) {
-    .pm-team-layout:not(:has(.pm-task-card)) {
-        grid-template-columns: minmax(0, 1fr) 18.5rem;
+/* Keep the approved desktop proportions as the four-column team narrows. */
+@media (76rem < width <= 92rem) {
+    .pm-shell {
+        grid-template-columns: clamp(14rem, 17.5vw, 17.375rem) minmax(0, 1fr);
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide {
-        grid-template-columns: 5rem minmax(0, 1fr);
-        grid-template-areas:
-            "portrait title"
-            "portrait subtitle"
-            "message message"
-            "summary summary"
-            "divider divider"
-            "open open"
-            "availability availability"
-            "preparation preparation";
-        align-items: center;
-        gap: .25rem .5rem;
-        padding: .75rem;
+    .pm-brand {
+        gap: .5rem;
+        padding-inline: .4rem .25rem;
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide h2 {
-        grid-area: title;
-        font-size: 1.35rem;
+    .pm-brand svg {
+        flex-basis: 3.25rem;
+        inline-size: 3.25rem;
+        block-size: 3.25rem;
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-subtitle {
-        grid-area: subtitle;
-        margin-block-start: 0;
+    .pm-brand strong {
+        font-size: 1.5rem;
+    }
+
+    .pm-navigation a {
+        gap: .75rem;
+        padding-inline: 1rem;
+    }
+
+    .pm-theme-control {
+        --theme-switcher-font: 400 .875rem/1.25 Arial, "Helvetica Neue", sans-serif;
+        margin-inline: 0;
+    }
+
+    .pm-local-caption {
+        gap: .5rem;
         font-size: .95rem;
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-portrait {
-        grid-area: portrait;
-        inline-size: 5rem;
-        block-size: 5rem;
+    .pm-workspace-avatar {
+        flex-basis: 2.75rem;
+        inline-size: 2.75rem;
+        block-size: 2.75rem;
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-team-guide h3 {
-        grid-area: message;
+    .pm-team-guide {
+        padding: 1rem;
+    }
+
+    .pm-guide-portrait {
+        inline-size: clamp(7.5rem, 10vw, 9rem);
+        block-size: clamp(7.5rem, 10vw, 9rem);
+    }
+
+    .pm-team-guide h3 {
         font-size: 1.1rem;
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-summary {
-        grid-area: summary;
-        gap: .25rem;
+    .pm-guide-summary {
         font-size: 1rem;
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-icon {
+    .pm-guide-icon {
         flex-basis: 1.4rem;
         inline-size: 1.4rem;
         block-size: 1.4rem;
     }
 
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-divider {
-        grid-area: divider;
-    }
-
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-open {
-        grid-area: open;
+    .pm-guide-open {
         min-block-size: 2.75rem;
         font-size: 1rem;
-    }
-
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-availability {
-        grid-area: availability;
-    }
-
-    .pm-team-layout:not(:has(.pm-task-card)) .pm-guide-preparation {
-        grid-area: preparation;
     }
 }
 
