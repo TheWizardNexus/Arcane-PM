@@ -398,8 +398,13 @@ The Connections view mounts `mountCodexRequests` from `requests.js` before its
 initial status refresh, so replay reaches the active view. This section presents
 actual command/file approval and question requests, preserves entered answers
 across replay, and exposes full protocol only in explicitly opened developer
-inspection. It offers no automatic or session-wide approval. Unsupported or
-incomplete requests retain their native conversation link.
+inspection. It offers no automatic or session-wide approval. Unsupported requests
+remain pending with an explicit PM limitation. Missing command or file-change
+content leaves approval unavailable; existing decline actions remain available
+while the request is pending. An unknown response outcome leaves another response
+unavailable. The native conversation link remains available when a thread ID is
+present. It provides navigation only: opening Desktop does not transfer or resolve
+the pending request owned by PM's separate app-server connection.
 
 Connections also accepts an exact Codex task ID through `discoverWorkspace`,
 then uses the existing local association action. This reads that thread's

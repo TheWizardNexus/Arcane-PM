@@ -55,13 +55,13 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
             if (control.needsReview) control.node.hidden = !record.reviewable;
         }
         if (record.retired) {
-            record.status.textContent = 'This request belongs to a previous connection. Your entered answers remain here; review the current conversation in Codex.';
+            record.status.textContent = 'This request belongs to a previous connection. PM can no longer respond to it.';
         } else if (record.sending || record.responseState === 'sending') {
             record.status.textContent = 'Sending your response…';
         } else if (record.responseState === 'sent') {
             record.status.textContent = 'Response sent. Codex acceptance and execution remain unconfirmed.';
         } else if (record.responseState === 'unknown') {
-            record.status.textContent = 'The response outcome is unknown. Open the conversation in Codex before taking another action.';
+            record.status.textContent = 'The response outcome is unknown, so another response is currently unavailable.';
         } else if (!current.connected) {
             record.status.textContent = 'The connection is unavailable. This request cannot be answered here yet.';
         } else if (record.responseState === 'unavailable') {
@@ -71,7 +71,7 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
         } else if (record.failureMessage) {
             record.status.textContent = record.failureMessage;
         } else {
-            record.status.textContent = record.supported ? 'Waiting for your response.' : 'This request needs a supported Codex client.';
+            record.status.textContent = record.supported ? 'Waiting for your response.' : 'This request remains pending.';
         }
     }
 
@@ -157,7 +157,7 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
             renderQuestions(record);
         } else {
             title.textContent = 'Codex needs attention';
-            content.append(element('p', '', 'PM cannot answer this kind of request. Review it in Codex.'));
+            content.append(element('p', '', 'PM cannot answer this kind of request.'));
         }
         syncControls(record);
         renderSummary();
@@ -192,7 +192,7 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
             record.content.append(element('pre', '', params.command));
             record.reviewable = true;
         } else {
-            record.content.append(element('p', '', 'Codex did not supply the complete command or input for review. Open the conversation to review it before allowing it.'));
+            record.content.append(element('p', '', 'Codex did not supply the complete command or input for review. PM cannot approve this request.'));
         }
         if (params.networkApprovalContext) {
             const network = params.networkApprovalContext;
@@ -230,10 +230,10 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
             original.append(details);
             record.content.append(original);
         } else {
-            record.content.append(element('p', '', 'The matching file changes have not arrived for review. Open the conversation in Codex to inspect them.'));
+            record.content.append(element('p', '', 'The matching file changes have not arrived for review. PM cannot approve this request yet.'));
         }
         if (requestedSessionAccess) {
-            record.content.append(element('p', 'pm-task-description', `Codex requested write access under ${params.grantRoot} for the rest of the session. Review this broader scope in Codex before allowing it.`));
+            record.content.append(element('p', 'pm-task-description', `Codex requested write access under ${params.grantRoot} for the rest of the session. PM cannot grant this broader access.`));
         }
         if (!record.actions.childElementCount) approvalActions(record);
         syncControls(record);
@@ -337,7 +337,7 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
             } else {
                 record.responseState = 'unknown';
                 console.error('Arcane PM received an unconfirmed Codex response outcome', outcome);
-                report('The response outcome is unknown. Open the conversation in Codex.');
+                report('The response outcome is unknown, so another response is currently unavailable.');
             }
         } catch (error) {
             console.error('Arcane PM could not confirm the Codex request response', error);
@@ -351,7 +351,7 @@ export function mountCodexRequests(container, {bridge, signal, onStatus} = {}) {
                 report(record.failureMessage);
             } else {
                 record.responseState = 'unknown';
-                report('The response outcome is unknown. Open the conversation in Codex before taking another action.');
+                report('The response outcome is unknown, so another response is currently unavailable.');
             }
         } finally {
             record.sending = false;
