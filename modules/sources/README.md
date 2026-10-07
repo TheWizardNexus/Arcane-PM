@@ -92,6 +92,12 @@ Text-only consumers may use `textComplete` while retaining the complete coverage
 and attachment references separately from their text inputs. They still inspect
 the subsequent `readTaskSources` result for actual retained-content failures.
 
+When an incomplete native-history response rejects with
+`PM_SOURCE_HISTORY_UNAVAILABLE`, its `nativeResult` retains the complete,
+unchanged bridge response, including original responses, coverage, and
+diagnostics. This remains transient developer diagnostic content outside
+ordinary user status, model inputs, and saved source records.
+
 Task-scoped reads order kinds deterministically, then conversation origins and
 their actual native turn/item/part positions. Other retained records use import
 time and stable source ID. Conversation refresh records `turnIndex` and

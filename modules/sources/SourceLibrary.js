@@ -850,7 +850,9 @@ export function createSourceLibrary({getStorage, pmData, bridge} = {}) {
             const result = await bridge.readConversation({threadId: task.origin.threadId, signal: options.signal});
             assertActive(options.signal);
             if (result.coverage?.complete !== true || !Array.isArray(result.original?.turns)) {
-                throw sourceError('The connection has not supplied complete accessible history. Retained originals remain available.', 'PM_SOURCE_HISTORY_UNAVAILABLE');
+                const error = sourceError('The connection has not supplied complete accessible history. Retained originals remain available.', 'PM_SOURCE_HISTORY_UNAVAILABLE');
+                error.nativeResult = result;
+                throw error;
             }
             return mutate(async function retainConversationSnapshot() {
                 assertActive(options.signal);
