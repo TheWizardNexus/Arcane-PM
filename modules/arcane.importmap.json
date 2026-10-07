@@ -217,6 +217,7 @@
     "arcane-os/ai/core-local": "./node_modules/arcane-os/browser-runtime/ai/core-local.mjs",
     "arcane-os/ai/core-model-assets": "./node_modules/arcane-os/browser-runtime/ai/core-model-assets.mjs",
     "arcane-os/ai/core-onnx": "./node_modules/arcane-os/browser-runtime/ai/core-onnx.mjs",
+    "arcane-os/ai/model-observation": "./node_modules/arcane-os/browser-runtime/ai/model-observation.mjs",
     "arcane-os/ai/tool-text-stream": "./node_modules/arcane-os/browser-runtime/ai/tool-text-stream.mjs",
     "arcane-os/ai/twin-cloud": "./node_modules/arcane-os/browser-runtime/ai/twin-cloud.mjs",
     "arcane-os/app-data-scope": "./node_modules/arcane-os/runtime/arcane/modules/AppDataScope.js",
